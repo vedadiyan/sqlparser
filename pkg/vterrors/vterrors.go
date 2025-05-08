@@ -88,21 +88,38 @@ package vterrors
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/spf13/pflag"
 
 	vtrpcpb "github.com/vedadiyan/sqlparser/pkg/vtrpc"
 )
 
-// logErrStacks controls whether or not printing errors includes the
+// logErrStacks controls whether printing errors includes the
 // embedded stack trace in the output.
 var logErrStacks bool
+var muLogErrStacks sync.Mutex
+
+func getLogErrStacks() bool {
+	muLogErrStacks.Lock()
+	defer muLogErrStacks.Unlock()
+	return logErrStacks
+}
+
+func setLogErrStacks(val bool) {
+	muLogErrStacks.Lock()
+	defer muLogErrStacks.Unlock()
+	logErrStacks = val
+}
 
 // RegisterFlags registers the command-line options that control vterror
 // behavior on the provided FlagSet.
 func RegisterFlags(fs *pflag.FlagSet) {
+	muLogErrStacks.Lock()
+	defer muLogErrStacks.Unlock()
 	fs.BoolVar(&logErrStacks, "log_err_stacks", false, "log stack traces for errors")
 }
 
@@ -133,10 +150,14 @@ func Errorf(code vtrpcpb.Code, format string, args ...any) error {
 // NewErrorf also records the stack trace at the point it was called.
 // Use this for errors in Vitess that we eventually want to mimic as a MySQL error
 func NewErrorf(code vtrpcpb.Code, state State, format string, args ...any) error {
-	msg := format
-	if len(args) != 0 {
-		msg = fmt.Sprintf(format, args...)
-	}
+	return NewError(code, state, fmt.Sprintf(format, args...))
+}
+
+// NewErrorf formats according to a format specifier and returns the string
+// as a value that satisfies error.
+// NewErrorf also records the stack trace at the point it was called.
+// Use this for errors in Vitess that we eventually want to mimic as a MySQL error
+func NewError(code vtrpcpb.Code, state State, msg string) error {
 	return &fundamental{
 		msg:   msg,
 		code:  code,
@@ -160,7 +181,7 @@ func (f *fundamental) Format(s fmt.State, verb rune) {
 	case 'v':
 		panicIfError(io.WriteString(s, "Code: "+f.code.String()+"\n"))
 		panicIfError(io.WriteString(s, f.msg+"\n"))
-		if logErrStacks {
+		if getLogErrStacks() {
 			f.stack.Format(s, verb)
 		}
 		return
@@ -234,14 +255,27 @@ func Wrap(err error, message string) error {
 // at the point Wrapf is call, and the format specifier.
 // If err is nil, Wrapf returns nil.
 func Wrapf(err error, format string, args ...any) error {
-	if err == nil {
-		return nil
+	return Wrap(err, fmt.Sprintf(format, args...))
+}
+
+// Unwrap attempts to return the Cause of the given error, if it is indeed the result of a vterrors.Wrapf()
+// The function indicates whether the error was indeed wrapped. If the error was not wrapped, the function
+// returns the original error.
+func Unwrap(err error) (wasWrapped bool, unwrapped error) {
+	var w *wrapping
+	if errors.As(err, &w) {
+		return true, w.Cause()
 	}
-	return &wrapping{
-		cause: err,
-		msg:   fmt.Sprintf(format, args...),
-		stack: callers(),
+	return false, err
+}
+
+// UnwrapAll attempts to recursively unwrap the given error, and returns the most underlying cause
+func UnwrapAll(err error) error {
+	wasWrapped := true
+	for wasWrapped {
+		wasWrapped, err = Unwrap(err)
 	}
+	return err
 }
 
 type wrapping struct {
@@ -257,7 +291,7 @@ func (w *wrapping) Format(s fmt.State, verb rune) {
 	if rune('v') == verb {
 		panicIfError(fmt.Fprintf(s, "%v\n", w.Cause()))
 		panicIfError(io.WriteString(s, w.msg))
-		if logErrStacks {
+		if getLogErrStacks() {
 			w.stack.Format(s, verb)
 		}
 		return
@@ -338,6 +372,20 @@ func Equals(a, b error) bool {
 // For comparing two vterrors, use Equals() instead.
 func Print(err error) string {
 	return fmt.Sprintf("%v: %v\n", Code(err), err.Error())
+}
+
+// TruncateError truncates error messages that are longer than the
+// specified length.
+func TruncateError(oldErr error, max int) error {
+	if oldErr == nil || max <= 0 || len(oldErr.Error()) <= max {
+		return oldErr
+	}
+
+	if max <= 12 {
+		return New(Code(oldErr), "[TRUNCATED]")
+	}
+
+	return New(Code(oldErr), oldErr.Error()[:max-12]+" [TRUNCATED]")
 }
 
 func (f *fundamental) ErrorState() State       { return f.state }

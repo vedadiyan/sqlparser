@@ -18,20 +18,27 @@ limitations under the License.
 package sqltypes
 
 import (
-	"encoding/base64"
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"strconv"
 	"strings"
+	"time"
+
+	"google.golang.org/protobuf/encoding/protowire"
 
 	"github.com/vedadiyan/sqlparser/pkg/bytes2"
 	"github.com/vedadiyan/sqlparser/pkg/hack"
-
+	"github.com/vedadiyan/sqlparser/pkg/mysql/datetime"
+	"github.com/vedadiyan/sqlparser/pkg/mysql/decimal"
+	"github.com/vedadiyan/sqlparser/pkg/mysql/fastparse"
+	"github.com/vedadiyan/sqlparser/pkg/mysql/format"
 	querypb "github.com/vedadiyan/sqlparser/pkg/query"
 	"github.com/vedadiyan/sqlparser/pkg/vterrors"
-	"github.com/vedadiyan/sqlparser/pkg/vtrpc"
+	vtrpcpb "github.com/vedadiyan/sqlparser/pkg/vtrpc"
 )
 
 var (
@@ -40,11 +47,18 @@ var (
 
 	// DontEscape tells you if a character should not be escaped.
 	DontEscape = byte(255)
-
-	nullstr = []byte("null")
+	NullStr    = "null"
+	NullBytes  = []byte(NullStr)
 
 	// ErrIncompatibleTypeCast indicates a casting problem
-	ErrIncompatibleTypeCast = fmt.Errorf("cannot convert value to desired type")
+	ErrIncompatibleTypeCast = errors.New("Cannot convert value to desired type")
+
+	ErrInvalidEncodedString = errors.New("invalid SQL encoded string")
+)
+
+const (
+	// flagTinyWeight marks this Value as having a Tiny Weight String
+	flagTinyWeight = 0x1
 )
 
 type (
@@ -60,7 +74,15 @@ type (
 	// an integral type, the bytes are always stored as a canonical
 	// representation that matches how MySQL returns such values.
 	Value struct {
-		typ querypb.Type
+		// typ is the value's sqltypes.Type (this always fits in 16 bits)
+		typ uint16
+		// flags are the flags set for this Value; right now this field is only
+		// used to track whether tinyweight is set
+		flags uint16
+		// tinyweight is a weight string prefix for this Value.
+		// See: evalengine.TinyWeighter
+		tinyweight uint32
+		// val is the raw byte representation of this Value
 		val []byte
 	}
 
@@ -72,17 +94,22 @@ type (
 func NewValue(typ querypb.Type, val []byte) (v Value, err error) {
 	switch {
 	case IsSigned(typ):
-		if _, err := strconv.ParseInt(string(val), 10, 64); err != nil {
+		if _, err := fastparse.ParseInt64(hack.String(val), 10); err != nil {
 			return NULL, err
 		}
 		return MakeTrusted(typ, val), nil
 	case IsUnsigned(typ):
-		if _, err := strconv.ParseUint(string(val), 10, 64); err != nil {
+		if _, err := fastparse.ParseUint64(hack.String(val), 10); err != nil {
 			return NULL, err
 		}
 		return MakeTrusted(typ, val), nil
-	case IsFloat(typ) || typ == Decimal:
-		if _, err := strconv.ParseFloat(string(val), 64); err != nil {
+	case IsFloat(typ):
+		if _, err := fastparse.ParseFloat64(hack.String(val)); err != nil {
+			return NULL, err
+		}
+		return MakeTrusted(typ, val), nil
+	case IsDecimal(typ):
+		if _, err := decimal.NewFromMySQL(val); err != nil {
 			return NULL, err
 		}
 		return MakeTrusted(typ, val), nil
@@ -101,12 +128,10 @@ func NewValue(typ querypb.Type, val []byte) (v Value, err error) {
 // comments. Other packages can also use the function to create
 // VarBinary or VarChar values.
 func MakeTrusted(typ querypb.Type, val []byte) Value {
-
 	if typ == Null {
 		return NULL
 	}
-
-	return Value{typ: typ, val: val}
+	return Value{typ: uint16(typ), val: val}
 }
 
 // NewHexNum builds an Hex Value.
@@ -139,6 +164,11 @@ func NewInt32(v int32) Value {
 	return MakeTrusted(Int32, strconv.AppendInt(nil, int64(v), 10))
 }
 
+// NewInt16 builds a Int16 Value.
+func NewInt16(v int16) Value {
+	return MakeTrusted(Int16, strconv.AppendInt(nil, int64(v), 10))
+}
+
 // NewUint64 builds an Uint64 Value.
 func NewUint64(v uint64) Value {
 	return MakeTrusted(Uint64, strconv.AppendUint(nil, v, 10))
@@ -149,9 +179,29 @@ func NewUint32(v uint32) Value {
 	return MakeTrusted(Uint32, strconv.AppendUint(nil, uint64(v), 10))
 }
 
+// NewUint16 builds a Uint16 Value.
+func NewUint16(v uint16) Value {
+	return MakeTrusted(Uint16, strconv.AppendUint(nil, uint64(v), 10))
+}
+
+// NewUint8 builds a Uint8 Value.
+func NewUint8(v uint8) Value {
+	return MakeTrusted(Uint8, strconv.AppendUint(nil, uint64(v), 10))
+}
+
+// NewBoolean builds a Uint8 Value from a boolean.
+func NewBoolean(v bool) Value {
+	return MakeTrusted(Uint8, strconv.AppendBool(nil, v))
+}
+
 // NewFloat64 builds an Float64 Value.
 func NewFloat64(v float64) Value {
-	return MakeTrusted(Float64, strconv.AppendFloat(nil, v, 'g', -1, 64))
+	return MakeTrusted(Float64, format.FormatFloat(v))
+}
+
+// NewFloat32 builds a Float32 Value.
+func NewFloat32(v float32) Value {
+	return MakeTrusted(Float32, format.FormatFloat(float64(v)))
 }
 
 // NewVarChar builds a VarChar Value.
@@ -162,7 +212,7 @@ func NewVarChar(v string) Value {
 func NewJSON(v string) (Value, error) {
 	j := []byte(v)
 	if !json.Valid(j) {
-		return Value{}, vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT, "invalid JSON value: %q", v)
+		return Value{}, vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "invalid JSON value: %q", v)
 	}
 	return MakeTrusted(TypeJSON, j), nil
 }
@@ -238,7 +288,7 @@ func InterfaceToValue(goval any) (Value, error) {
 
 // Type returns the type of Value.
 func (v Value) Type() querypb.Type {
-	return v.typ
+	return querypb.Type(v.typ)
 }
 
 // Raw returns the internal representation of the value. For newer types,
@@ -259,9 +309,9 @@ func (v Value) RawStr() string {
 // match MySQL's representation for hex encoded binary data or newer types.
 // If the value is not convertible like in the case of Expression, it returns an error.
 func (v Value) ToBytes() ([]byte, error) {
-	switch v.typ {
+	switch v.Type() {
 	case Expression:
-		return nil, vterrors.New(vtrpc.Code_INVALID_ARGUMENT, "expression cannot be converted to bytes")
+		return nil, vterrors.New(vtrpcpb.Code_INVALID_ARGUMENT, "expression cannot be converted to bytes")
 	case HexVal: // TODO: all the decode below have problem when decoding odd number of bytes. This needs to be fixed.
 		return v.decodeHexVal()
 	case HexNum:
@@ -284,7 +334,12 @@ func (v Value) ToInt64() (int64, error) {
 		return 0, ErrIncompatibleTypeCast
 	}
 
-	return strconv.ParseInt(v.RawStr(), 10, 64)
+	return fastparse.ParseInt64(v.RawStr(), 10)
+}
+
+// ToCastInt64 returns the best effort value as MySQL would return it as a int64.
+func (v Value) ToCastInt64() (int64, error) {
+	return fastparse.ParseInt64(v.RawStr(), 10)
 }
 
 func (v Value) ToInt32() (int32, error) {
@@ -296,13 +351,32 @@ func (v Value) ToInt32() (int32, error) {
 	return int32(i), err
 }
 
-// ToFloat64 returns the value as MySQL would return it as a float64.
-func (v Value) ToFloat64() (float64, error) {
-	if !IsNumber(v.typ) {
+// ToInt returns the value as MySQL would return it as a int.
+func (v Value) ToInt() (int, error) {
+	if !v.IsIntegral() {
 		return 0, ErrIncompatibleTypeCast
 	}
 
-	return strconv.ParseFloat(v.RawStr(), 64)
+	return strconv.Atoi(v.RawStr())
+}
+
+// ToFloat64 returns the value as MySQL would return it as a float64.
+func (v Value) ToFloat64() (float64, error) {
+	if !IsNumber(v.Type()) {
+		return 0, ErrIncompatibleTypeCast
+	}
+
+	return fastparse.ParseFloat64(v.RawStr())
+}
+
+// ToUint16 returns the value as MySQL would return it as a uint16.
+func (v Value) ToUint16() (uint16, error) {
+	if !v.IsIntegral() {
+		return 0, ErrIncompatibleTypeCast
+	}
+
+	i, err := strconv.ParseUint(v.RawStr(), 10, 16)
+	return uint16(i), err
 }
 
 // ToUint64 returns the value as MySQL would return it as a uint64.
@@ -311,7 +385,12 @@ func (v Value) ToUint64() (uint64, error) {
 		return 0, ErrIncompatibleTypeCast
 	}
 
-	return strconv.ParseUint(v.RawStr(), 10, 64)
+	return fastparse.ParseUint64(v.RawStr(), 10)
+}
+
+// ToCastUint64 returns the best effort value as MySQL would return it as a uint64.
+func (v Value) ToCastUint64() (uint64, error) {
+	return fastparse.ParseUint64(v.RawStr(), 10)
 }
 
 func (v Value) ToUint32() (uint32, error) {
@@ -341,7 +420,7 @@ func (v Value) ToBool() (bool, error) {
 // ToString returns the value as MySQL would return it as string.
 // If the value is not convertible like in the case of Expression, it returns nil.
 func (v Value) ToString() string {
-	if v.typ == Expression {
+	if v.Type() == Expression {
 		return ""
 	}
 	return hack.String(v.val)
@@ -349,23 +428,91 @@ func (v Value) ToString() string {
 
 // String returns a printable version of the value.
 func (v Value) String() string {
-	if v.typ == Null {
+	if v.Type() == Null {
 		return "NULL"
 	}
-	if v.IsQuoted() || v.typ == Bit {
-		return fmt.Sprintf("%v(%q)", v.typ, v.val)
+	if v.IsQuoted() || v.Type() == Bit {
+		return fmt.Sprintf("%v(%q)", Type(v.typ), v.val)
 	}
-	return fmt.Sprintf("%v(%s)", v.typ, v.val)
+	return fmt.Sprintf("%v(%s)", Type(v.typ), v.val)
+}
+
+// ToTime returns the value as a time.Time in the provided location.
+// NULL values are returned as zero time.
+func (v Value) ToTime(loc *time.Location) (time.Time, error) {
+	if v.Type() == Null {
+		return time.Time{}, nil
+	}
+	switch v.Type() {
+	case Datetime, Timestamp:
+		return datetimeToTime(v, loc)
+	case Date:
+		return dateToTime(v, loc)
+	default:
+		return time.Time{}, ErrIncompatibleTypeCast
+	}
+}
+
+// ErrInvalidTime is returned when we fail to parse a datetime
+// string from MySQL. This should never happen unless things are
+// seriously messed up.
+var ErrInvalidTime = errors.New("invalid MySQL time string")
+
+func datetimeToTime(v Value, loc *time.Location) (time.Time, error) {
+	if v.IsNull() {
+		return time.Time{}, nil
+	}
+	// Valid format string offsets for a DATETIME
+	//  |DATETIME          |19+
+	//  |------------------|------|
+	// "2006-01-02 15:04:05.999999"
+	dt, _, ok := datetime.ParseDateTime(v.ToString(), -1)
+	if !ok {
+		return time.Time{}, ErrInvalidTime
+	}
+	if dt.IsZero() {
+		return time.Time{}, nil
+	}
+
+	if loc == nil {
+		loc = time.UTC
+	}
+	return time.Date(dt.Date.Year(), time.Month(dt.Date.Month()), dt.Date.Day(),
+		dt.Time.Hour(), dt.Time.Minute(), dt.Time.Second(), dt.Time.Nanosecond(), loc), nil
+}
+
+func dateToTime(v Value, loc *time.Location) (time.Time, error) {
+	if v.IsNull() {
+		return time.Time{}, nil
+	}
+	// Valid format string offsets for a DATE
+	//  |DATE     |10
+	//  |---------|
+	// "2006-01-02 00:00:00.000000"
+	d, ok := datetime.ParseDate(v.ToString())
+	if !ok {
+		return time.Time{}, ErrInvalidTime
+	}
+	if d.IsZero() {
+		return time.Time{}, nil
+	}
+
+	if loc == nil {
+		loc = time.UTC
+	}
+	return time.Date(d.Year(), time.Month(d.Month()), d.Day(), 0, 0, 0, 0, loc), nil
 }
 
 // EncodeSQL encodes the value into an SQL statement. Can be binary.
 func (v Value) EncodeSQL(b BinWriter) {
 	switch {
-	case v.typ == Null:
-		b.Write(nullstr)
+	case v.Type() == Null:
+		b.Write(NullBytes)
+	case v.IsBinary():
+		encodeBinarySQL(v.val, b)
 	case v.IsQuoted():
 		encodeBytesSQL(v.val, b)
-	case v.typ == Bit:
+	case v.Type() == Bit:
 		encodeBytesSQLBits(v.val, b)
 	default:
 		b.Write(v.val)
@@ -376,12 +523,25 @@ func (v Value) EncodeSQL(b BinWriter) {
 // as its writer, so it can be inlined for performance.
 func (v Value) EncodeSQLStringBuilder(b *strings.Builder) {
 	switch {
-	case v.typ == Null:
-		b.Write(nullstr)
+	case v.Type() == Null:
+		b.Write(NullBytes)
+	case v.IsBinary():
+		encodeBinarySQLStringBuilder(v.val, b)
 	case v.IsQuoted():
 		encodeBytesSQLStringBuilder(v.val, b)
-	case v.typ == Bit:
+	case v.Type() == Bit:
 		encodeBytesSQLBits(v.val, b)
+	case v.Type() == Tuple:
+		b.WriteByte('(')
+		var i int
+		_ = v.ForEachValue(func(bv Value) {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			bv.EncodeSQLStringBuilder(b)
+			i++
+		})
+		b.WriteByte(')')
 	default:
 		b.Write(v.val)
 	}
@@ -391,24 +551,14 @@ func (v Value) EncodeSQLStringBuilder(b *strings.Builder) {
 // as its writer, so it can be inlined for performance.
 func (v Value) EncodeSQLBytes2(b *bytes2.Buffer) {
 	switch {
-	case v.typ == Null:
-		b.Write(nullstr)
+	case v.Type() == Null:
+		b.Write(NullBytes)
+	case v.IsBinary():
+		encodeBinarySQLBytes2(v.val, b)
 	case v.IsQuoted():
 		encodeBytesSQLBytes2(v.val, b)
-	case v.typ == Bit:
+	case v.Type() == Bit:
 		encodeBytesSQLBits(v.val, b)
-	default:
-		b.Write(v.val)
-	}
-}
-
-// EncodeASCII encodes the value using 7-bit clean ascii bytes.
-func (v Value) EncodeASCII(b BinWriter) {
-	switch {
-	case v.typ == Null:
-		b.Write(nullstr)
-	case v.IsQuoted() || v.typ == Bit:
-		encodeBytesASCII(v.val, b)
 	default:
 		b.Write(v.val)
 	}
@@ -416,56 +566,85 @@ func (v Value) EncodeASCII(b BinWriter) {
 
 // IsNull returns true if Value is null.
 func (v Value) IsNull() bool {
-	return v.typ == Null
+	return v.Type() == Null
 }
 
 // IsIntegral returns true if Value is an integral.
 func (v Value) IsIntegral() bool {
-	return IsIntegral(v.typ)
+	return IsIntegral(v.Type())
 }
 
 // IsSigned returns true if Value is a signed integral.
 func (v Value) IsSigned() bool {
-	return IsSigned(v.typ)
+	return IsSigned(v.Type())
 }
 
 // IsUnsigned returns true if Value is an unsigned integral.
 func (v Value) IsUnsigned() bool {
-	return IsUnsigned(v.typ)
+	return IsUnsigned(v.Type())
 }
 
 // IsFloat returns true if Value is a float.
 func (v Value) IsFloat() bool {
-	return IsFloat(v.typ)
+	return IsFloat(v.Type())
 }
 
 // IsQuoted returns true if Value must be SQL-quoted.
 func (v Value) IsQuoted() bool {
-	return IsQuoted(v.typ)
+	return IsQuoted(v.Type())
 }
 
 // IsText returns true if Value is a collatable text.
 func (v Value) IsText() bool {
-	return IsText(v.typ)
+	return IsText(v.Type())
 }
 
 // IsBinary returns true if Value is binary.
 func (v Value) IsBinary() bool {
-	return IsBinary(v.typ)
+	return IsBinary(v.Type())
 }
 
 // IsDateTime returns true if Value is datetime.
 func (v Value) IsDateTime() bool {
-	dt := int(querypb.Type_DATETIME)
-	return int(v.typ)&dt == dt
+	return v.Type() == querypb.Type_DATETIME
+}
+
+// IsTimestamp returns true if Value is date.
+func (v Value) IsTimestamp() bool {
+	return v.Type() == querypb.Type_TIMESTAMP
+}
+
+// IsDate returns true if Value is date.
+func (v Value) IsDate() bool {
+	return v.Type() == querypb.Type_DATE
+}
+
+// IsTime returns true if Value is time.
+func (v Value) IsTime() bool {
+	return v.Type() == querypb.Type_TIME
+}
+
+// IsDecimal returns true if Value is a decimal.
+func (v Value) IsDecimal() bool {
+	return IsDecimal(v.Type())
+}
+
+// IsEnum returns true if Value is enum.
+func (v Value) IsEnum() bool {
+	return v.Type() == querypb.Type_ENUM
+}
+
+// IsSet returns true if Value is set.
+func (v Value) IsSet() bool {
+	return v.Type() == querypb.Type_SET
 }
 
 // IsComparable returns true if the Value is null safe comparable without collation information.
 func (v *Value) IsComparable() bool {
-	if v.typ == Null || IsNumber(v.typ) || IsBinary(v.typ) {
+	if v.Type() == Null || IsNumber(v.Type()) || IsBinary(v.Type()) {
 		return true
 	}
-	switch v.typ {
+	switch v.Type() {
 	case Timestamp, Date, Time, Datetime, Enum, Set, TypeJSON, Bit:
 		return true
 	}
@@ -476,10 +655,10 @@ func (v *Value) IsComparable() bool {
 // It's not a complete implementation.
 func (v Value) MarshalJSON() ([]byte, error) {
 	switch {
-	case v.IsQuoted() || v.typ == Bit:
+	case v.IsQuoted() || v.Type() == Bit:
 		return json.Marshal(v.ToString())
-	case v.typ == Null:
-		return nullstr, nil
+	case v.Type() == Null:
+		return NullBytes, nil
 	}
 	return v.val, nil
 }
@@ -520,7 +699,7 @@ func (v *Value) UnmarshalJSON(b []byte) error {
 // an INSERT was performed with x'A1' having been specified as a value
 func (v *Value) decodeHexVal() ([]byte, error) {
 	if len(v.val) < 3 || (v.val[0] != 'x' && v.val[0] != 'X') || v.val[1] != '\'' || v.val[len(v.val)-1] != '\'' {
-		return nil, vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT, "invalid hex value: %v", v.val)
+		return nil, vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "invalid hex value: %v", v.val)
 	}
 	hexBytes := v.val[2 : len(v.val)-1]
 	decodedHexBytes, err := hex.DecodeString(string(hexBytes))
@@ -535,7 +714,7 @@ func (v *Value) decodeHexVal() ([]byte, error) {
 // an INSERT was performed with 0xA1 having been specified as a value
 func (v *Value) decodeHexNum() ([]byte, error) {
 	if len(v.val) < 3 || v.val[0] != '0' || v.val[1] != 'x' {
-		return nil, vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT, "invalid hex number: %v", v.val)
+		return nil, vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "invalid hex number: %v", v.val)
 	}
 	hexBytes := v.val[2:]
 	decodedHexBytes, err := hex.DecodeString(string(hexBytes))
@@ -550,14 +729,110 @@ func (v *Value) decodeHexNum() ([]byte, error) {
 // an INSERT was performed with 0x5 having been specified as a value
 func (v *Value) decodeBitNum() ([]byte, error) {
 	if len(v.val) < 3 || v.val[0] != '0' || v.val[1] != 'b' {
-		return nil, vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT, "invalid bit number: %v", v.val)
+		return nil, vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "invalid bit number: %v", v.val)
 	}
 	var i big.Int
 	_, ok := i.SetString(string(v.val), 0)
 	if !ok {
-		return nil, vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT, "invalid bit number: %v", v.val)
+		return nil, vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "invalid bit number: %v", v.val)
 	}
 	return i.Bytes(), nil
+}
+
+var ErrBadTupleEncoding = errors.New("bad tuple encoding in sqltypes.Value")
+
+func encodeTuple(tuple []Value) []byte {
+	var total int
+	for _, v := range tuple {
+		total += len(v.val) + 3
+	}
+
+	buf := make([]byte, 0, total)
+	for _, v := range tuple {
+		buf = protowire.AppendVarint(buf, uint64(v.typ))
+		buf = protowire.AppendVarint(buf, uint64(len(v.val)))
+		buf = append(buf, v.val...)
+	}
+	return buf
+}
+
+func (v *Value) ForEachValue(each func(bv Value)) error {
+	if v.Type() != Tuple {
+		panic("Value.ForEachValue on non-tuple")
+	}
+
+	var sz, ty uint64
+	var varlen int
+	buf := v.val
+	for len(buf) > 0 {
+		ty, varlen = protowire.ConsumeVarint(buf)
+		if varlen < 0 {
+			return ErrBadTupleEncoding
+		}
+
+		buf = buf[varlen:]
+		sz, varlen = protowire.ConsumeVarint(buf)
+		if varlen < 0 {
+			return ErrBadTupleEncoding
+		}
+
+		buf = buf[varlen:]
+		each(Value{val: buf[:sz], typ: uint16(ty)})
+
+		buf = buf[sz:]
+	}
+	return nil
+}
+
+// Equal compares this Value to other. It ignores any flags set.
+func (v Value) Equal(other Value) bool {
+	return v.typ == other.typ && bytes.Equal(v.val, other.val)
+}
+
+// SetTinyWeight sets this Value's tiny weight string
+func (v *Value) SetTinyWeight(w uint32) {
+	v.tinyweight = w
+	v.flags |= flagTinyWeight
+}
+
+// TinyWeightCmp performs a fast comparison of this Value with other if both have a Tiny Weight String set.
+// For any 2 instances of Value: if both instances have a Tiny Weight string,
+// and the weight strings are **different**, the two values will sort accordingly to the 32-bit
+// numerical sort of their tiny weight strings. Otherwise, the relative sorting of the two values
+// will not be known, and they will require a full sort using e.g. evalengine.NullsafeCompare
+// See: evalengine.TinyWeighter
+func (v Value) TinyWeightCmp(other Value) int {
+	// both values need a tinyweight; otherwise the comparison is invalid
+	if v.flags&other.flags&flagTinyWeight == 0 {
+		return 0
+	}
+	if v.tinyweight == other.tinyweight {
+		return 0
+	}
+	if v.tinyweight < other.tinyweight {
+		return -1
+	}
+	return 1
+}
+
+func (v Value) TinyWeight() uint32 {
+	return v.tinyweight
+}
+
+func encodeBinarySQL(val []byte, b BinWriter) {
+	buf := &bytes2.Buffer{}
+	encodeBinarySQLBytes2(val, buf)
+	b.Write(buf.Bytes())
+}
+
+func encodeBinarySQLBytes2(val []byte, buf *bytes2.Buffer) {
+	buf.Write([]byte("_binary"))
+	encodeBytesSQLBytes2(val, buf)
+}
+
+func encodeBinarySQLStringBuilder(val []byte, buf *strings.Builder) {
+	buf.Write([]byte("_binary"))
+	encodeBytesSQLStringBuilder(val, buf)
 }
 
 func encodeBytesSQL(val []byte, b BinWriter) {
@@ -640,16 +915,6 @@ func encodeBytesSQLBits(val []byte, b BinWriter) {
 	fmt.Fprint(b, "'")
 }
 
-func encodeBytesASCII(val []byte, b BinWriter) {
-	buf := &bytes2.Buffer{}
-	buf.WriteByte('\'')
-	encoder := base64.NewEncoder(base64.StdEncoding, buf)
-	encoder.Write(val)
-	encoder.Close()
-	buf.WriteByte('\'')
-	b.Write(buf.Bytes())
-}
-
 // SQLEncodeMap specifies how to escape binary data with '\'.
 // Complies to https://dev.mysql.com/doc/refman/5.7/en/string-literals.html
 // Handling escaping of % and _ is different than other characters.
@@ -663,7 +928,25 @@ var SQLEncodeMap [256]byte
 // SQLDecodeMap is the reverse of SQLEncodeMap
 var SQLDecodeMap [256]byte
 
+// encodeRef is a map of characters we use for escaping.
+// This doesn't include double quotes since we don't need
+// to escape that, as we always generate single quoted strings.
 var encodeRef = map[byte]byte{
+	'\x00': '0',
+	'\'':   '\'',
+	'\b':   'b',
+	'\n':   'n',
+	'\r':   'r',
+	'\t':   't',
+	26:     'Z', // ctl-Z
+	'\\':   '\\',
+}
+
+// decodeRef is a map of characters we use for unescaping.
+// We do need all characters here, since we do accept
+// escaped double quotes in single quote strings and
+// double quoted strings.
+var decodeRef = map[byte]byte{
 	'\x00': '0',
 	'\'':   '\'',
 	'"':    '"',
@@ -675,6 +958,56 @@ var encodeRef = map[byte]byte{
 	'\\':   '\\',
 }
 
+// BufDecodeStringSQL decodes the string into a strings.Builder
+func BufDecodeStringSQL(buf *strings.Builder, val string) error {
+	if len(val) < 2 || val[0] != '\'' || val[len(val)-1] != '\'' {
+		return fmt.Errorf("%s: %w", val, ErrInvalidEncodedString)
+	}
+	in := hack.StringBytes(val[1 : len(val)-1])
+	idx := 0
+	for {
+		if idx >= len(in) {
+			return nil
+		}
+		ch := in[idx]
+		if ch == '\'' {
+			idx++
+			if idx >= len(in) {
+				return fmt.Errorf("%s: %w", val, ErrInvalidEncodedString)
+			}
+			if in[idx] != '\'' {
+				return fmt.Errorf("%s: %w", val, ErrInvalidEncodedString)
+			}
+			buf.WriteByte(ch)
+			idx++
+			continue
+		}
+		if ch == '\\' {
+			idx++
+			if idx >= len(in) {
+				return fmt.Errorf("%s: %w", val, ErrInvalidEncodedString)
+			}
+			decoded := SQLDecodeMap[in[idx]]
+			if decoded == DontEscape {
+				return fmt.Errorf("%s: %w", val, ErrInvalidEncodedString)
+			}
+			buf.WriteByte(decoded)
+			idx++
+			continue
+		}
+
+		buf.WriteByte(ch)
+		idx++
+	}
+}
+
+// DecodeStringSQL encodes the string as a SQL string.
+func DecodeStringSQL(val string) (string, error) {
+	var buf strings.Builder
+	err := BufDecodeStringSQL(&buf, val)
+	return buf.String(), err
+}
+
 func init() {
 	for i := range SQLEncodeMap {
 		SQLEncodeMap[i] = DontEscape
@@ -683,6 +1016,11 @@ func init() {
 	for i := range SQLEncodeMap {
 		if to, ok := encodeRef[byte(i)]; ok {
 			SQLEncodeMap[byte(i)] = to
+		}
+	}
+
+	for i := range SQLDecodeMap {
+		if to, ok := decodeRef[byte(i)]; ok {
 			SQLDecodeMap[to] = byte(i)
 		}
 	}

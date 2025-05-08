@@ -18,7 +18,11 @@ package sqlparser
 
 import (
 	"fmt"
+	"reflect"
+	"strconv"
 	"strings"
+
+	"github.com/vedadiyan/sqlparser/pkg/slice"
 )
 
 // NodeFormatter defines the signature of a custom node formatter
@@ -34,12 +38,21 @@ type NodeFormatter func(buf *TrackedBuffer, node SQLNode)
 // want to generate a query that's different from the default.
 type TrackedBuffer struct {
 	*strings.Builder
-	bindLocations []bindLocation
+	bindLocations []BindLocation
 	nodeFormatter NodeFormatter
 	literal       func(string) (int, error)
-	escape        bool
 	fast          bool
+
+	escape escapeType
 }
+
+type escapeType int
+
+const (
+	escapeKeywords escapeType = iota
+	escapeAllIdentifiers
+	escapeNoIdentifiers
+)
 
 // NewTrackedBuffer creates a new TrackedBuffer.
 func NewTrackedBuffer(nodeFormatter NodeFormatter) *TrackedBuffer {
@@ -77,13 +90,25 @@ func (buf *TrackedBuffer) SetUpperCase(enable bool) {
 	}
 }
 
+func (buf *TrackedBuffer) WriteLiteral(lit string) {
+	_, _ = buf.literal(lit)
+}
+
 // SetEscapeAllIdentifiers sets whether ALL identifiers in the serialized SQL query should be quoted
 // and escaped. By default, identifiers are only escaped if they match the name of a SQL keyword or they
 // contain characters that must be escaped.
 // Enabling this option will prevent the optimized fastFormat routines from running.
-func (buf *TrackedBuffer) SetEscapeAllIdentifiers(enable bool) {
+func (buf *TrackedBuffer) SetEscapeAllIdentifiers() {
 	buf.fast = false
-	buf.escape = enable
+	buf.escape = escapeAllIdentifiers
+}
+
+// SetEscapeNoIdentifier sets whether NO identifiers in the serialized SQL query should be quoted and escaped.
+// Warning: this can lead to query output that is not valid SQL
+// Enabling this option will prevent the optimized fastFormat routines from running.
+func (buf *TrackedBuffer) SetEscapeNoIdentifier() {
+	buf.fast = false
+	buf.escape = escapeNoIdentifiers
 }
 
 // WriteNode function, initiates the writing of a single SQLNode tree by passing
@@ -109,13 +134,13 @@ func (buf *TrackedBuffer) Myprintf(format string, values ...any) {
 
 func (buf *TrackedBuffer) printExpr(currentExpr Expr, expr Expr, left bool) {
 	if precedenceFor(currentExpr) == Syntactic {
-		expr.formatFast(buf)
+		expr.FormatFast(buf)
 	} else {
 		needParens := needParens(currentExpr, expr, left)
 		if needParens {
 			buf.WriteByte('(')
 		}
-		expr.formatFast(buf)
+		expr.FormatFast(buf)
 		if needParens {
 			buf.WriteByte(')')
 		}
@@ -152,15 +177,6 @@ func (buf *TrackedBuffer) astPrintf(currentNode SQLNode, format string, values .
 		}
 
 		switch format[i] {
-		case 'c':
-			switch v := values[fieldnum].(type) {
-			case byte:
-				buf.WriteByte(v)
-			case rune:
-				buf.WriteRune(v)
-			default:
-				panic(fmt.Sprintf("unexpected TrackedBuffer type %T", v))
-			}
 		case 's':
 			switch v := values[fieldnum].(type) {
 			case string:
@@ -190,15 +206,87 @@ func (buf *TrackedBuffer) astPrintf(currentNode SQLNode, format string, values .
 				}
 			}
 		case 'd':
-			buf.WriteString(fmt.Sprintf("%d", values[fieldnum]))
+			switch v := values[fieldnum].(type) {
+			case int:
+				buf.WriteInt(int64(v))
+			case int8:
+				buf.WriteInt(int64(v))
+			case int16:
+				buf.WriteInt(int64(v))
+			case int32:
+				buf.WriteInt(int64(v))
+			case int64:
+				buf.WriteInt(v)
+			case uint:
+				buf.WriteUint(uint64(v))
+			case uint8:
+				buf.WriteUint(uint64(v))
+			case uint16:
+				buf.WriteUint(uint64(v))
+			case uint32:
+				buf.WriteUint(uint64(v))
+			case uint64:
+				buf.WriteUint(v)
+			case uintptr:
+				buf.WriteUint(uint64(v))
+			default:
+				panic(fmt.Sprintf("unexepcted TrackedBuffer type %T", v))
+			}
 		case 'a':
 			buf.WriteArg("", values[fieldnum].(string))
+		case 'n':
+			// used for printing slices of SQLNodes
+			value := values[fieldnum]
+			buf.formatNodes(value)
 		default:
-			panic("unexpected")
+			panic("unexpected format: " + string(format[i-1:i+1]))
 		}
 		fieldnum++
 		i++
 	}
+}
+
+func (buf *TrackedBuffer) formatExprs(exprs []Expr) {
+	var prefix string
+	for _, expr := range exprs {
+		buf.WriteString(prefix)
+		buf.formatter(expr)
+		prefix = ", "
+	}
+}
+
+func (buf *TrackedBuffer) formatNodes(input any) {
+	switch nodes := input.(type) {
+	case []Expr:
+		buf.formatExprs(nodes)
+		return
+	}
+
+	// SLOW PATH! Add specific cases above to avoid reflection.
+
+	// Check if the input is a slice
+	val := reflect.ValueOf(input)
+	if val.Kind() != reflect.Slice {
+		// Handle the error or return if input is not a slice
+		panic("input is not a slice")
+	}
+
+	// Iterate over the slice elements
+	for i := 0; i < val.Len(); i++ {
+		elem := val.Index(i).Interface()
+
+		// Assert each element implements SQLNode
+		node, ok := elem.(SQLNode)
+		if !ok {
+			// Handle the error or skip non-SQLNode elements
+			panic("element does not implement SQLNode")
+		}
+
+		// Now `node` is of type SQLNode
+		// You can call methods or use it as a SQLNode here
+		buf.Myprintf("%v", node)
+	}
+
 }
 
 func getExpressionForParensEval(checkParens bool, value any) Expr {
@@ -214,7 +302,7 @@ func getExpressionForParensEval(checkParens bool, value any) Expr {
 func (buf *TrackedBuffer) formatter(node SQLNode) {
 	switch {
 	case buf.fast:
-		node.formatFast(buf)
+		node.FormatFast(buf)
 	case buf.nodeFormatter != nil:
 		buf.nodeFormatter(buf, node)
 	default:
@@ -267,12 +355,24 @@ func areBothISExpr(op Expr, val Expr) bool {
 // WriteArg writes a value argument into the buffer along with
 // tracking information for future substitutions.
 func (buf *TrackedBuffer) WriteArg(prefix, arg string) {
-	buf.bindLocations = append(buf.bindLocations, bindLocation{
-		offset: buf.Len(),
-		length: len(prefix) + len(arg),
+	length := len(prefix) + len(arg)
+	buf.bindLocations = append(buf.bindLocations, BindLocation{
+		Offset: buf.Len(),
+		Length: length,
 	})
+	buf.Grow(length)
 	buf.WriteString(prefix)
 	buf.WriteString(arg)
+}
+
+// WriteInt writes a signed integer into the buffer.
+func (buf *TrackedBuffer) WriteInt(v int64) {
+	buf.WriteString(strconv.FormatInt(v, 10))
+}
+
+// WriteUint writes an unsigned integer into the buffer.
+func (buf *TrackedBuffer) WriteUint(v uint64) {
+	buf.WriteString(strconv.FormatUint(v, 10))
 }
 
 // ParsedQuery returns a ParsedQuery that contains bind
@@ -300,7 +400,19 @@ func String(node SQLNode) string {
 	}
 
 	buf := NewTrackedBuffer(nil)
-	node.formatFast(buf)
+	node.FormatFast(buf)
+	return buf.String()
+}
+
+// UnescapedString will return a string where no identifiers have been escaped.
+func UnescapedString(node SQLNode) string {
+	if node == nil {
+		return "" // do not return '<nil>', which is Go syntax.
+	}
+
+	buf := NewTrackedBuffer(nil)
+	buf.SetEscapeNoIdentifier()
+	node.Format(buf)
 	return buf.String()
 }
 
@@ -313,7 +425,18 @@ func CanonicalString(node SQLNode) string {
 
 	buf := NewTrackedBuffer(nil)
 	buf.SetUpperCase(true)
-	buf.SetEscapeAllIdentifiers(true)
+	buf.SetEscapeAllIdentifiers()
 	node.Format(buf)
 	return buf.String()
+}
+
+func SliceString[T SQLNode](valueExprs []T) string {
+	return SliceStringWithSep(valueExprs, ", ")
+}
+
+func SliceStringWithSep[T SQLNode](valueExprs []T, sep string) string {
+	exprs := slice.Map(valueExprs, func(expr T) string {
+		return String(expr)
+	})
+	return strings.Join(exprs, sep)
 }

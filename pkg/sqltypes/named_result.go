@@ -24,7 +24,7 @@ import (
 
 var (
 	// ErrNoSuchField indicates a search for a value by an unknown field/column name
-	ErrNoSuchField = errors.New("no such field in RowNamedValues")
+	ErrNoSuchField = errors.New("No such field in RowNamedValues")
 )
 
 // RowNamedValues contains a row's values as a map based on Field (aka table column) name
@@ -50,6 +50,14 @@ func (r RowNamedValues) AsString(fieldName string, def string) string {
 func (r RowNamedValues) ToInt64(fieldName string) (int64, error) {
 	if v, ok := r[fieldName]; ok {
 		return v.ToInt64()
+	}
+	return 0, ErrNoSuchField
+}
+
+// ToInt returns the named field as int
+func (r RowNamedValues) ToInt(fieldName string) (int, error) {
+	if v, ok := r[fieldName]; ok {
+		return v.ToInt()
 	}
 	return 0, ErrNoSuchField
 }

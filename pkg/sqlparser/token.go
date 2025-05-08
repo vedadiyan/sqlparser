@@ -35,26 +35,28 @@ type Tokenizer struct {
 	SkipSpecialComments bool
 	SkipToEnd           bool
 	LastError           error
-	ParseTree           Statement
+	ParseTrees          []Statement
 	BindVars            map[string]struct{}
 
+	lastTokenType  int
 	lastToken      string
 	posVarIndex    int
 	partialDDL     Statement
-	nesting        int
 	multi          bool
 	specialComment *Tokenizer
 
-	Pos int
-	buf string
+	Pos    int
+	buf    string
+	parser *Parser
 }
 
 // NewStringTokenizer creates a new Tokenizer for the
 // sql string.
-func NewStringTokenizer(sql string) *Tokenizer {
+func (p *Parser) NewStringTokenizer(sql string) *Tokenizer {
 	return &Tokenizer{
 		buf:      sql,
 		BindVars: make(map[string]struct{}),
+		parser:   p,
 	}
 }
 
@@ -62,7 +64,15 @@ func NewStringTokenizer(sql string) *Tokenizer {
 // This function is used by go yacc.
 func (tkn *Tokenizer) Lex(lval *yySymType) int {
 	if tkn.SkipToEnd {
-		return tkn.skipStatement()
+		// We need to check the last token type to
+		// prevent us from skipping the next query in a multi
+		// parse mode. If we don't check the last token, we
+		// will skip the next query.
+		if tkn.lastTokenType == ';' {
+			tkn.SkipToEnd = false
+		} else {
+			return tkn.skipStatement()
+		}
 	}
 
 	typ, val := tkn.Scan()
@@ -80,6 +90,7 @@ func (tkn *Tokenizer) Lex(lval *yySymType) int {
 		tkn.partialDDL = nil
 	}
 	lval.str = val
+	tkn.lastTokenType = typ
 	tkn.lastToken = val
 	return typ
 }
@@ -170,7 +181,7 @@ func (tkn *Tokenizer) Scan() (int, string) {
 	case isDigit(ch):
 		return tkn.scanNumber()
 	case ch == ':':
-		return tkn.scanBindVar()
+		return tkn.scanBindVarOrAssignmentExpression()
 	case ch == ';':
 		if tkn.multi {
 			// In multi mode, ';' is treated as EOF. So, we don't advance.
@@ -424,8 +435,8 @@ func (tkn *Tokenizer) scanLiteralIdentifier() (int, string) {
 	}
 }
 
-// scanBindVar scans a bind variable; assumes a ':' has been scanned right before
-func (tkn *Tokenizer) scanBindVar() (int, string) {
+// scanBindVarOrAssignmentExpression scans a bind variable or an assignment expression; assumes a ':' has been scanned right before
+func (tkn *Tokenizer) scanBindVarOrAssignmentExpression() (int, string) {
 	start := tkn.Pos
 	token := VALUE_ARG
 
@@ -435,6 +446,13 @@ func (tkn *Tokenizer) scanBindVar() (int, string) {
 		tkn.scanMantissa(10)
 		return OFFSET_ARG, tkn.buf[start+1 : tkn.Pos]
 	}
+
+	// If : is followed by a =, then it is an assignment operator
+	if tkn.cur() == '=' {
+		tkn.skip(1)
+		return ASSIGNMENT_OPT, ""
+	}
+
 	// If : is followed by another : it is a list arg. Example ::v1, ::list
 	if tkn.cur() == ':' {
 		token = LIST_ARG
@@ -672,9 +690,9 @@ func (tkn *Tokenizer) scanMySQLSpecificComment() (int, string) {
 
 	commentVersion, sql := ExtractMysqlComment(tkn.buf[start:tkn.Pos])
 
-	if mySQLParserVersion >= commentVersion {
+	if tkn.parser.version >= commentVersion {
 		// Only add the special comment to the tokenizer if the version of MySQL is higher or equal to the comment version
-		tkn.specialComment = NewStringTokenizer(sql)
+		tkn.specialComment = tkn.parser.NewStringTokenizer(sql)
 	}
 
 	return tkn.Scan()
@@ -695,14 +713,9 @@ func (tkn *Tokenizer) peek(dist int) uint16 {
 	return uint16(tkn.buf[tkn.Pos+dist])
 }
 
-// reset clears any internal state.
+// reset clears posVarIndex to reset the index count we assign to variables for a new query.
 func (tkn *Tokenizer) reset() {
-	tkn.ParseTree = nil
-	tkn.partialDDL = nil
-	tkn.specialComment = nil
 	tkn.posVarIndex = 0
-	tkn.nesting = 0
-	tkn.SkipToEnd = false
 }
 
 func isLetter(ch uint16) bool {

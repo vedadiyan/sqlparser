@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Vitess Authors.
+Copyright 2025 The Vitess Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -116,24 +116,42 @@ func (cmp *Comparator) SQLNode(inA, inB SQLNode) bool {
 			return false
 		}
 		return cmp.RefOfAlterVschema(a, b)
+	case *Analyze:
+		b, ok := inB.(*Analyze)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfAnalyze(a, b)
 	case *AndExpr:
 		b, ok := inB.(*AndExpr)
 		if !ok {
 			return false
 		}
 		return cmp.RefOfAndExpr(a, b)
-	case Argument:
-		b, ok := inB.(Argument)
+	case *AnyValue:
+		b, ok := inB.(*AnyValue)
 		if !ok {
 			return false
 		}
-		return a == b
+		return cmp.RefOfAnyValue(a, b)
+	case *Argument:
+		b, ok := inB.(*Argument)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfArgument(a, b)
 	case *ArgumentLessWindowExpr:
 		b, ok := inB.(*ArgumentLessWindowExpr)
 		if !ok {
 			return false
 		}
 		return cmp.RefOfArgumentLessWindowExpr(a, b)
+	case *AssignmentExpr:
+		b, ok := inB.(*AssignmentExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfAssignmentExpr(a, b)
 	case *AutoIncSpec:
 		b, ok := inB.(*AutoIncSpec)
 		if !ok {
@@ -152,6 +170,12 @@ func (cmp *Comparator) SQLNode(inA, inB SQLNode) bool {
 			return false
 		}
 		return cmp.RefOfBegin(a, b)
+	case *BeginEndStatement:
+		b, ok := inB.(*BeginEndStatement)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfBeginEndStatement(a, b)
 	case *BetweenExpr:
 		b, ok := inB.(*BetweenExpr)
 		if !ok {
@@ -278,6 +302,12 @@ func (cmp *Comparator) SQLNode(inA, inB SQLNode) bool {
 			return false
 		}
 		return cmp.RefOfComparisonExpr(a, b)
+	case *CompoundStatements:
+		b, ok := inB.(*CompoundStatements)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfCompoundStatements(a, b)
 	case *ConstraintDefinition:
 		b, ok := inB.(*ConstraintDefinition)
 		if !ok {
@@ -320,6 +350,12 @@ func (cmp *Comparator) SQLNode(inA, inB SQLNode) bool {
 			return false
 		}
 		return cmp.RefOfCreateDatabase(a, b)
+	case *CreateProcedure:
+		b, ok := inB.(*CreateProcedure)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfCreateProcedure(a, b)
 	case *CreateTable:
 		b, ok := inB.(*CreateTable)
 		if !ok {
@@ -344,6 +380,24 @@ func (cmp *Comparator) SQLNode(inA, inB SQLNode) bool {
 			return false
 		}
 		return cmp.RefOfDeallocateStmt(a, b)
+	case *DeclareCondition:
+		b, ok := inB.(*DeclareCondition)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfDeclareCondition(a, b)
+	case *DeclareHandler:
+		b, ok := inB.(*DeclareHandler)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfDeclareHandler(a, b)
+	case *DeclareVar:
+		b, ok := inB.(*DeclareVar)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfDeclareVar(a, b)
 	case *Default:
 		b, ok := inB.(*Default)
 		if !ok {
@@ -386,6 +440,12 @@ func (cmp *Comparator) SQLNode(inA, inB SQLNode) bool {
 			return false
 		}
 		return cmp.RefOfDropKey(a, b)
+	case *DropProcedure:
+		b, ok := inB.(*DropProcedure)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfDropProcedure(a, b)
 	case *DropTable:
 		b, ok := inB.(*DropTable)
 		if !ok {
@@ -398,6 +458,12 @@ func (cmp *Comparator) SQLNode(inA, inB SQLNode) bool {
 			return false
 		}
 		return cmp.RefOfDropView(a, b)
+	case *ElseIfBlock:
+		b, ok := inB.(*ElseIfBlock)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfElseIfBlock(a, b)
 	case *ExecuteStmt:
 		b, ok := inB.(*ExecuteStmt)
 		if !ok {
@@ -422,12 +488,12 @@ func (cmp *Comparator) SQLNode(inA, inB SQLNode) bool {
 			return false
 		}
 		return cmp.RefOfExplainTab(a, b)
-	case Exprs:
-		b, ok := inB.(Exprs)
+	case *Exprs:
+		b, ok := inB.(*Exprs)
 		if !ok {
 			return false
 		}
-		return cmp.Exprs(a, b)
+		return cmp.RefOfExprs(a, b)
 	case *ExtractFuncExpr:
 		b, ok := inB.(*ExtractFuncExpr)
 		if !ok {
@@ -440,12 +506,6 @@ func (cmp *Comparator) SQLNode(inA, inB SQLNode) bool {
 			return false
 		}
 		return cmp.RefOfExtractValueExpr(a, b)
-	case *ExtractedSubquery:
-		b, ok := inB.(*ExtractedSubquery)
-		if !ok {
-			return false
-		}
-		return cmp.RefOfExtractedSubquery(a, b)
 	case *FirstOrLastValueExpr:
 		b, ok := inB.(*FirstOrLastValueExpr)
 		if !ok {
@@ -500,18 +560,114 @@ func (cmp *Comparator) SQLNode(inA, inB SQLNode) bool {
 			return false
 		}
 		return cmp.RefOfGTIDFuncExpr(a, b)
-	case GroupBy:
-		b, ok := inB.(GroupBy)
+	case *GeoHashFromLatLongExpr:
+		b, ok := inB.(*GeoHashFromLatLongExpr)
 		if !ok {
 			return false
 		}
-		return cmp.GroupBy(a, b)
+		return cmp.RefOfGeoHashFromLatLongExpr(a, b)
+	case *GeoHashFromPointExpr:
+		b, ok := inB.(*GeoHashFromPointExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfGeoHashFromPointExpr(a, b)
+	case *GeoJSONFromGeomExpr:
+		b, ok := inB.(*GeoJSONFromGeomExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfGeoJSONFromGeomExpr(a, b)
+	case *GeomCollPropertyFuncExpr:
+		b, ok := inB.(*GeomCollPropertyFuncExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfGeomCollPropertyFuncExpr(a, b)
+	case *GeomFormatExpr:
+		b, ok := inB.(*GeomFormatExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfGeomFormatExpr(a, b)
+	case *GeomFromGeoHashExpr:
+		b, ok := inB.(*GeomFromGeoHashExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfGeomFromGeoHashExpr(a, b)
+	case *GeomFromGeoJSONExpr:
+		b, ok := inB.(*GeomFromGeoJSONExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfGeomFromGeoJSONExpr(a, b)
+	case *GeomFromTextExpr:
+		b, ok := inB.(*GeomFromTextExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfGeomFromTextExpr(a, b)
+	case *GeomFromWKBExpr:
+		b, ok := inB.(*GeomFromWKBExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfGeomFromWKBExpr(a, b)
+	case *GeomPropertyFuncExpr:
+		b, ok := inB.(*GeomPropertyFuncExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfGeomPropertyFuncExpr(a, b)
+	case *GroupBy:
+		b, ok := inB.(*GroupBy)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfGroupBy(a, b)
 	case *GroupConcatExpr:
 		b, ok := inB.(*GroupConcatExpr)
 		if !ok {
 			return false
 		}
 		return cmp.RefOfGroupConcatExpr(a, b)
+	case *HandlerConditionErrorCode:
+		b, ok := inB.(*HandlerConditionErrorCode)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfHandlerConditionErrorCode(a, b)
+	case *HandlerConditionNamed:
+		b, ok := inB.(*HandlerConditionNamed)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfHandlerConditionNamed(a, b)
+	case *HandlerConditionNotFound:
+		b, ok := inB.(*HandlerConditionNotFound)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfHandlerConditionNotFound(a, b)
+	case *HandlerConditionSQLException:
+		b, ok := inB.(*HandlerConditionSQLException)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfHandlerConditionSQLException(a, b)
+	case *HandlerConditionSQLState:
+		b, ok := inB.(*HandlerConditionSQLState)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfHandlerConditionSQLState(a, b)
+	case *HandlerConditionSQLWarning:
+		b, ok := inB.(*HandlerConditionSQLWarning)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfHandlerConditionSQLWarning(a, b)
 	case IdentifierCI:
 		b, ok := inB.(IdentifierCI)
 		if !ok {
@@ -524,6 +680,12 @@ func (cmp *Comparator) SQLNode(inA, inB SQLNode) bool {
 			return false
 		}
 		return cmp.IdentifierCS(a, b)
+	case *IfStatement:
+		b, ok := inB.(*IfStatement)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfIfStatement(a, b)
 	case *IndexDefinition:
 		b, ok := inB.(*IndexDefinition)
 		if !ok {
@@ -560,12 +722,12 @@ func (cmp *Comparator) SQLNode(inA, inB SQLNode) bool {
 			return false
 		}
 		return cmp.RefOfInsertExpr(a, b)
-	case *IntervalExpr:
-		b, ok := inB.(*IntervalExpr)
+	case *IntervalDateExpr:
+		b, ok := inB.(*IntervalDateExpr)
 		if !ok {
 			return false
 		}
-		return cmp.RefOfIntervalExpr(a, b)
+		return cmp.RefOfIntervalDateExpr(a, b)
 	case *IntervalFuncExpr:
 		b, ok := inB.(*IntervalFuncExpr)
 		if !ok {
@@ -584,6 +746,12 @@ func (cmp *Comparator) SQLNode(inA, inB SQLNode) bool {
 			return false
 		}
 		return cmp.RefOfIsExpr(a, b)
+	case *JSONArrayAgg:
+		b, ok := inB.(*JSONArrayAgg)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfJSONArrayAgg(a, b)
 	case *JSONArrayExpr:
 		b, ok := inB.(*JSONArrayExpr)
 		if !ok {
@@ -620,6 +788,12 @@ func (cmp *Comparator) SQLNode(inA, inB SQLNode) bool {
 			return false
 		}
 		return cmp.RefOfJSONKeysExpr(a, b)
+	case *JSONObjectAgg:
+		b, ok := inB.(*JSONObjectAgg)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfJSONObjectAgg(a, b)
 	case *JSONObjectExpr:
 		b, ok := inB.(*JSONObjectExpr)
 		if !ok {
@@ -746,6 +920,12 @@ func (cmp *Comparator) SQLNode(inA, inB SQLNode) bool {
 			return false
 		}
 		return cmp.RefOfKeyState(a, b)
+	case *Kill:
+		b, ok := inB.(*Kill)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfKill(a, b)
 	case *LagLeadExpr:
 		b, ok := inB.(*LagLeadExpr)
 		if !ok {
@@ -764,6 +944,12 @@ func (cmp *Comparator) SQLNode(inA, inB SQLNode) bool {
 			return false
 		}
 		return cmp.RefOfLineStringExpr(a, b)
+	case *LinestrPropertyFuncExpr:
+		b, ok := inB.(*LinestrPropertyFuncExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfLinestrPropertyFuncExpr(a, b)
 	case ListArg:
 		b, ok := inB.(ListArg)
 		if !ok {
@@ -842,6 +1028,24 @@ func (cmp *Comparator) SQLNode(inA, inB SQLNode) bool {
 			return false
 		}
 		return cmp.RefOfModifyColumn(a, b)
+	case *MultiLinestringExpr:
+		b, ok := inB.(*MultiLinestringExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfMultiLinestringExpr(a, b)
+	case *MultiPointExpr:
+		b, ok := inB.(*MultiPointExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfMultiPointExpr(a, b)
+	case *MultiPolygonExpr:
+		b, ok := inB.(*MultiPolygonExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfMultiPolygonExpr(a, b)
 	case *NTHValueExpr:
 		b, ok := inB.(*NTHValueExpr)
 		if !ok {
@@ -938,12 +1142,6 @@ func (cmp *Comparator) SQLNode(inA, inB SQLNode) bool {
 			return false
 		}
 		return cmp.RefOfOtherAdmin(a, b)
-	case *OtherRead:
-		b, ok := inB.(*OtherRead)
-		if !ok {
-			return false
-		}
-		return cmp.RefOfOtherRead(a, b)
 	case *OverClause:
 		b, ok := inB.(*OverClause)
 		if !ok {
@@ -1016,12 +1214,42 @@ func (cmp *Comparator) SQLNode(inA, inB SQLNode) bool {
 			return false
 		}
 		return cmp.RefOfPointExpr(a, b)
+	case *PointPropertyFuncExpr:
+		b, ok := inB.(*PointPropertyFuncExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfPointPropertyFuncExpr(a, b)
+	case *PolygonExpr:
+		b, ok := inB.(*PolygonExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfPolygonExpr(a, b)
+	case *PolygonPropertyFuncExpr:
+		b, ok := inB.(*PolygonPropertyFuncExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfPolygonPropertyFuncExpr(a, b)
 	case *PrepareStmt:
 		b, ok := inB.(*PrepareStmt)
 		if !ok {
 			return false
 		}
 		return cmp.RefOfPrepareStmt(a, b)
+	case *ProcParameter:
+		b, ok := inB.(*ProcParameter)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfProcParameter(a, b)
+	case *PurgeBinaryLogs:
+		b, ok := inB.(*PurgeBinaryLogs)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfPurgeBinaryLogs(a, b)
 	case ReferenceAction:
 		b, ok := inB.(ReferenceAction)
 		if !ok {
@@ -1106,6 +1334,12 @@ func (cmp *Comparator) SQLNode(inA, inB SQLNode) bool {
 			return false
 		}
 		return cmp.RootNode(a, b)
+	case *RowAlias:
+		b, ok := inB.(*RowAlias)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfRowAlias(a, b)
 	case *SRollback:
 		b, ok := inB.(*SRollback)
 		if !ok {
@@ -1124,12 +1358,12 @@ func (cmp *Comparator) SQLNode(inA, inB SQLNode) bool {
 			return false
 		}
 		return cmp.RefOfSelect(a, b)
-	case SelectExprs:
-		b, ok := inB.(SelectExprs)
+	case *SelectExprs:
+		b, ok := inB.(*SelectExprs)
 		if !ok {
 			return false
 		}
-		return cmp.SelectExprs(a, b)
+		return cmp.RefOfSelectExprs(a, b)
 	case *SelectInto:
 		b, ok := inB.(*SelectInto)
 		if !ok {
@@ -1202,6 +1436,30 @@ func (cmp *Comparator) SQLNode(inA, inB SQLNode) bool {
 			return false
 		}
 		return cmp.RefOfShowThrottlerStatus(a, b)
+	case *ShowTransactionStatus:
+		b, ok := inB.(*ShowTransactionStatus)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfShowTransactionStatus(a, b)
+	case *Signal:
+		b, ok := inB.(*Signal)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfSignal(a, b)
+	case *SignalSet:
+		b, ok := inB.(*SignalSet)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfSignalSet(a, b)
+	case *SingleStatement:
+		b, ok := inB.(*SingleStatement)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfSingleStatement(a, b)
 	case *StarExpr:
 		b, ok := inB.(*StarExpr)
 		if !ok {
@@ -1316,12 +1574,12 @@ func (cmp *Comparator) SQLNode(inA, inB SQLNode) bool {
 			return false
 		}
 		return cmp.RefOfTablespaceOperation(a, b)
-	case *TimestampFuncExpr:
-		b, ok := inB.(*TimestampFuncExpr)
+	case *TimestampDiffExpr:
+		b, ok := inB.(*TimestampDiffExpr)
 		if !ok {
 			return false
 		}
-		return cmp.RefOfTimestampFuncExpr(a, b)
+		return cmp.RefOfTimestampDiffExpr(a, b)
 	case *TrimFuncExpr:
 		b, ok := inB.(*TrimFuncExpr)
 		if !ok {
@@ -1418,6 +1676,12 @@ func (cmp *Comparator) SQLNode(inA, inB SQLNode) bool {
 			return false
 		}
 		return cmp.RefOfValuesFuncExpr(a, b)
+	case *ValuesStatement:
+		b, ok := inB.(*ValuesStatement)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfValuesStatement(a, b)
 	case *VarPop:
 		b, ok := inB.(*VarPop)
 		if !ok {
@@ -1603,6 +1867,7 @@ func (cmp *Comparator) RefOfAlterColumn(a, b *AlterColumn) bool {
 		return false
 	}
 	return a.DropDefault == b.DropDefault &&
+		a.DefaultLiteral == b.DefaultLiteral &&
 		cmp.RefOfColName(a.Column, b.Column) &&
 		cmp.Expr(a.DefaultVal, b.DefaultVal) &&
 		cmp.RefOfBool(a.Invisible, b.Invisible)
@@ -1618,6 +1883,7 @@ func (cmp *Comparator) RefOfAlterDatabase(a, b *AlterDatabase) bool {
 	}
 	return a.UpdateDataDirectory == b.UpdateDataDirectory &&
 		a.FullyParsed == b.FullyParsed &&
+		cmp.RefOfParsedComments(a.Comments, b.Comments) &&
 		cmp.IdentifierCS(a.DBName, b.DBName) &&
 		cmp.SliceOfDatabaseOption(a.AlterOptions, b.AlterOptions)
 }
@@ -1644,6 +1910,7 @@ func (cmp *Comparator) RefOfAlterMigration(a, b *AlterMigration) bool {
 	}
 	return a.UUID == b.UUID &&
 		a.Expire == b.Expire &&
+		a.Threshold == b.Threshold &&
 		a.Shards == b.Shards &&
 		a.Type == b.Type &&
 		cmp.RefOfLiteral(a.Ratio, b.Ratio)
@@ -1679,7 +1946,7 @@ func (cmp *Comparator) RefOfAlterView(a, b *AlterView) bool {
 		cmp.TableName(a.ViewName, b.ViewName) &&
 		cmp.RefOfDefiner(a.Definer, b.Definer) &&
 		cmp.Columns(a.Columns, b.Columns) &&
-		cmp.SelectStatement(a.Select, b.Select) &&
+		cmp.TableStatement(a.Select, b.Select) &&
 		cmp.RefOfParsedComments(a.Comments, b.Comments)
 }
 
@@ -1698,6 +1965,18 @@ func (cmp *Comparator) RefOfAlterVschema(a, b *AlterVschema) bool {
 		cmp.RefOfAutoIncSpec(a.AutoIncSpec, b.AutoIncSpec)
 }
 
+// RefOfAnalyze does deep equals between the two objects.
+func (cmp *Comparator) RefOfAnalyze(a, b *Analyze) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.IsLocal == b.IsLocal &&
+		cmp.TableName(a.Table, b.Table)
+}
+
 // RefOfAndExpr does deep equals between the two objects.
 func (cmp *Comparator) RefOfAndExpr(a, b *AndExpr) bool {
 	if a == b {
@@ -1710,6 +1989,31 @@ func (cmp *Comparator) RefOfAndExpr(a, b *AndExpr) bool {
 		cmp.Expr(a.Right, b.Right)
 }
 
+// RefOfAnyValue does deep equals between the two objects.
+func (cmp *Comparator) RefOfAnyValue(a, b *AnyValue) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return cmp.Expr(a.Arg, b.Arg)
+}
+
+// RefOfArgument does deep equals between the two objects.
+func (cmp *Comparator) RefOfArgument(a, b *Argument) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.Name == b.Name &&
+		a.Size == b.Size &&
+		a.Scale == b.Scale &&
+		a.Type == b.Type
+}
+
 // RefOfArgumentLessWindowExpr does deep equals between the two objects.
 func (cmp *Comparator) RefOfArgumentLessWindowExpr(a, b *ArgumentLessWindowExpr) bool {
 	if a == b {
@@ -1720,6 +2024,18 @@ func (cmp *Comparator) RefOfArgumentLessWindowExpr(a, b *ArgumentLessWindowExpr)
 	}
 	return a.Type == b.Type &&
 		cmp.RefOfOverClause(a.OverClause, b.OverClause)
+}
+
+// RefOfAssignmentExpr does deep equals between the two objects.
+func (cmp *Comparator) RefOfAssignmentExpr(a, b *AssignmentExpr) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return cmp.Expr(a.Left, b.Left) &&
+		cmp.Expr(a.Right, b.Right)
 }
 
 // RefOfAutoIncSpec does deep equals between the two objects.
@@ -1743,7 +2059,8 @@ func (cmp *Comparator) RefOfAvg(a, b *Avg) bool {
 		return false
 	}
 	return a.Distinct == b.Distinct &&
-		cmp.Expr(a.Arg, b.Arg)
+		cmp.Expr(a.Arg, b.Arg) &&
+		cmp.RefOfOverClause(a.OverClause, b.OverClause)
 }
 
 // RefOfBegin does deep equals between the two objects.
@@ -1755,6 +2072,17 @@ func (cmp *Comparator) RefOfBegin(a, b *Begin) bool {
 		return false
 	}
 	return cmp.SliceOfTxAccessMode(a.TxAccessModes, b.TxAccessModes)
+}
+
+// RefOfBeginEndStatement does deep equals between the two objects.
+func (cmp *Comparator) RefOfBeginEndStatement(a, b *BeginEndStatement) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return cmp.RefOfCompoundStatements(a.Statements, b.Statements)
 }
 
 // RefOfBetweenExpr does deep equals between the two objects.
@@ -1792,7 +2120,8 @@ func (cmp *Comparator) RefOfBitAnd(a, b *BitAnd) bool {
 	if a == nil || b == nil {
 		return false
 	}
-	return cmp.Expr(a.Arg, b.Arg)
+	return cmp.Expr(a.Arg, b.Arg) &&
+		cmp.RefOfOverClause(a.OverClause, b.OverClause)
 }
 
 // RefOfBitOr does deep equals between the two objects.
@@ -1803,7 +2132,8 @@ func (cmp *Comparator) RefOfBitOr(a, b *BitOr) bool {
 	if a == nil || b == nil {
 		return false
 	}
-	return cmp.Expr(a.Arg, b.Arg)
+	return cmp.Expr(a.Arg, b.Arg) &&
+		cmp.RefOfOverClause(a.OverClause, b.OverClause)
 }
 
 // RefOfBitXor does deep equals between the two objects.
@@ -1814,7 +2144,8 @@ func (cmp *Comparator) RefOfBitXor(a, b *BitXor) bool {
 	if a == nil || b == nil {
 		return false
 	}
-	return cmp.Expr(a.Arg, b.Arg)
+	return cmp.Expr(a.Arg, b.Arg) &&
+		cmp.RefOfOverClause(a.OverClause, b.OverClause)
 }
 
 // RefOfCallProc does deep equals between the two objects.
@@ -1826,7 +2157,7 @@ func (cmp *Comparator) RefOfCallProc(a, b *CallProc) bool {
 		return false
 	}
 	return cmp.TableName(a.Name, b.Name) &&
-		cmp.Exprs(a.Params, b.Params)
+		cmp.SliceOfExpr(a.Params, b.Params)
 }
 
 // RefOfCaseExpr does deep equals between the two objects.
@@ -1878,7 +2209,7 @@ func (cmp *Comparator) RefOfCharExpr(a, b *CharExpr) bool {
 		return false
 	}
 	return a.Charset == b.Charset &&
-		cmp.Exprs(a.Exprs, b.Exprs)
+		cmp.SliceOfExpr(a.Exprs, b.Exprs)
 }
 
 // RefOfCheckConstraintDefinition does deep equals between the two objects.
@@ -1944,8 +2275,8 @@ func (cmp *Comparator) RefOfColumnType(a, b *ColumnType) bool {
 		a.Unsigned == b.Unsigned &&
 		a.Zerofill == b.Zerofill &&
 		cmp.RefOfColumnTypeOptions(a.Options, b.Options) &&
-		cmp.RefOfLiteral(a.Length, b.Length) &&
-		cmp.RefOfLiteral(a.Scale, b.Scale) &&
+		cmp.RefOfInt(a.Length, b.Length) &&
+		cmp.RefOfInt(a.Scale, b.Scale) &&
 		cmp.ColumnCharset(a.Charset, b.Charset) &&
 		cmp.SliceOfString(a.EnumValues, b.EnumValues)
 }
@@ -1995,7 +2326,7 @@ func (cmp *Comparator) RefOfCommonTableExpr(a, b *CommonTableExpr) bool {
 	}
 	return cmp.IdentifierCS(a.ID, b.ID) &&
 		cmp.Columns(a.Columns, b.Columns) &&
-		cmp.RefOfSubquery(a.Subquery, b.Subquery)
+		cmp.TableStatement(a.Subquery, b.Subquery)
 }
 
 // RefOfComparisonExpr does deep equals between the two objects.
@@ -2007,9 +2338,21 @@ func (cmp *Comparator) RefOfComparisonExpr(a, b *ComparisonExpr) bool {
 		return false
 	}
 	return a.Operator == b.Operator &&
+		a.Modifier == b.Modifier &&
 		cmp.Expr(a.Left, b.Left) &&
 		cmp.Expr(a.Right, b.Right) &&
 		cmp.Expr(a.Escape, b.Escape)
+}
+
+// RefOfCompoundStatements does deep equals between the two objects.
+func (cmp *Comparator) RefOfCompoundStatements(a, b *CompoundStatements) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return cmp.SliceOfCompoundStatement(a.Statements, b.Statements)
 }
 
 // RefOfConstraintDefinition does deep equals between the two objects.
@@ -2045,8 +2388,8 @@ func (cmp *Comparator) RefOfConvertType(a, b *ConvertType) bool {
 		return false
 	}
 	return a.Type == b.Type &&
-		cmp.RefOfLiteral(a.Length, b.Length) &&
-		cmp.RefOfLiteral(a.Scale, b.Scale) &&
+		cmp.RefOfInt(a.Length, b.Length) &&
+		cmp.RefOfInt(a.Scale, b.Scale) &&
 		cmp.ColumnCharset(a.Charset, b.Charset)
 }
 
@@ -2071,7 +2414,8 @@ func (cmp *Comparator) RefOfCount(a, b *Count) bool {
 		return false
 	}
 	return a.Distinct == b.Distinct &&
-		cmp.Exprs(a.Args, b.Args)
+		cmp.SliceOfExpr(a.Args, b.Args) &&
+		cmp.RefOfOverClause(a.OverClause, b.OverClause)
 }
 
 // RefOfCountStar does deep equals between the two objects.
@@ -2082,7 +2426,7 @@ func (cmp *Comparator) RefOfCountStar(a, b *CountStar) bool {
 	if a == nil || b == nil {
 		return false
 	}
-	return true
+	return cmp.RefOfOverClause(a.OverClause, b.OverClause)
 }
 
 // RefOfCreateDatabase does deep equals between the two objects.
@@ -2098,6 +2442,22 @@ func (cmp *Comparator) RefOfCreateDatabase(a, b *CreateDatabase) bool {
 		cmp.RefOfParsedComments(a.Comments, b.Comments) &&
 		cmp.IdentifierCS(a.DBName, b.DBName) &&
 		cmp.SliceOfDatabaseOption(a.CreateOptions, b.CreateOptions)
+}
+
+// RefOfCreateProcedure does deep equals between the two objects.
+func (cmp *Comparator) RefOfCreateProcedure(a, b *CreateProcedure) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.IfNotExists == b.IfNotExists &&
+		cmp.TableName(a.Name, b.Name) &&
+		cmp.RefOfParsedComments(a.Comments, b.Comments) &&
+		cmp.RefOfDefiner(a.Definer, b.Definer) &&
+		cmp.SliceOfRefOfProcParameter(a.Params, b.Params) &&
+		cmp.CompoundStatement(a.Body, b.Body)
 }
 
 // RefOfCreateTable does deep equals between the two objects.
@@ -2132,7 +2492,7 @@ func (cmp *Comparator) RefOfCreateView(a, b *CreateView) bool {
 		cmp.TableName(a.ViewName, b.ViewName) &&
 		cmp.RefOfDefiner(a.Definer, b.Definer) &&
 		cmp.Columns(a.Columns, b.Columns) &&
-		cmp.SelectStatement(a.Select, b.Select) &&
+		cmp.TableStatement(a.Select, b.Select) &&
 		cmp.RefOfParsedComments(a.Comments, b.Comments)
 }
 
@@ -2144,8 +2504,8 @@ func (cmp *Comparator) RefOfCurTimeFuncExpr(a, b *CurTimeFuncExpr) bool {
 	if a == nil || b == nil {
 		return false
 	}
-	return cmp.IdentifierCI(a.Name, b.Name) &&
-		cmp.Expr(a.Fsp, b.Fsp)
+	return a.Fsp == b.Fsp &&
+		cmp.IdentifierCI(a.Name, b.Name)
 }
 
 // RefOfDeallocateStmt does deep equals between the two objects.
@@ -2156,9 +2516,45 @@ func (cmp *Comparator) RefOfDeallocateStmt(a, b *DeallocateStmt) bool {
 	if a == nil || b == nil {
 		return false
 	}
-	return a.Type == b.Type &&
-		cmp.RefOfParsedComments(a.Comments, b.Comments) &&
+	return cmp.RefOfParsedComments(a.Comments, b.Comments) &&
 		cmp.IdentifierCI(a.Name, b.Name)
+}
+
+// RefOfDeclareCondition does deep equals between the two objects.
+func (cmp *Comparator) RefOfDeclareCondition(a, b *DeclareCondition) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return cmp.IdentifierCI(a.Name, b.Name) &&
+		cmp.HandlerCondition(a.Condition, b.Condition)
+}
+
+// RefOfDeclareHandler does deep equals between the two objects.
+func (cmp *Comparator) RefOfDeclareHandler(a, b *DeclareHandler) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.Action == b.Action &&
+		cmp.SliceOfHandlerCondition(a.Conditions, b.Conditions) &&
+		cmp.CompoundStatement(a.Statement, b.Statement)
+}
+
+// RefOfDeclareVar does deep equals between the two objects.
+func (cmp *Comparator) RefOfDeclareVar(a, b *DeclareVar) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return cmp.SliceOfIdentifierCI(a.VarNames, b.VarNames) &&
+		cmp.RefOfColumnType(a.Type, b.Type)
 }
 
 // RefOfDefault does deep equals between the two objects.
@@ -2195,8 +2591,8 @@ func (cmp *Comparator) RefOfDelete(a, b *Delete) bool {
 	return cmp.RefOfWith(a.With, b.With) &&
 		a.Ignore == b.Ignore &&
 		cmp.RefOfParsedComments(a.Comments, b.Comments) &&
+		cmp.SliceOfTableExpr(a.TableExprs, b.TableExprs) &&
 		cmp.TableNames(a.Targets, b.Targets) &&
-		cmp.TableExprs(a.TableExprs, b.TableExprs) &&
 		cmp.Partitions(a.Partitions, b.Partitions) &&
 		cmp.RefOfWhere(a.Where, b.Where) &&
 		cmp.OrderBy(a.OrderBy, b.OrderBy) &&
@@ -2212,7 +2608,7 @@ func (cmp *Comparator) RefOfDerivedTable(a, b *DerivedTable) bool {
 		return false
 	}
 	return a.Lateral == b.Lateral &&
-		cmp.SelectStatement(a.Select, b.Select)
+		cmp.TableStatement(a.Select, b.Select)
 }
 
 // RefOfDropColumn does deep equals between the two objects.
@@ -2251,6 +2647,19 @@ func (cmp *Comparator) RefOfDropKey(a, b *DropKey) bool {
 		cmp.IdentifierCI(a.Name, b.Name)
 }
 
+// RefOfDropProcedure does deep equals between the two objects.
+func (cmp *Comparator) RefOfDropProcedure(a, b *DropProcedure) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.IfExists == b.IfExists &&
+		cmp.RefOfParsedComments(a.Comments, b.Comments) &&
+		cmp.TableName(a.Name, b.Name)
+}
+
 // RefOfDropTable does deep equals between the two objects.
 func (cmp *Comparator) RefOfDropTable(a, b *DropTable) bool {
 	if a == b {
@@ -2276,6 +2685,18 @@ func (cmp *Comparator) RefOfDropView(a, b *DropView) bool {
 	return a.IfExists == b.IfExists &&
 		cmp.TableNames(a.FromTables, b.FromTables) &&
 		cmp.RefOfParsedComments(a.Comments, b.Comments)
+}
+
+// RefOfElseIfBlock does deep equals between the two objects.
+func (cmp *Comparator) RefOfElseIfBlock(a, b *ElseIfBlock) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return cmp.Expr(a.SearchCondition, b.SearchCondition) &&
+		cmp.RefOfCompoundStatements(a.ThenStatements, b.ThenStatements)
 }
 
 // RefOfExecuteStmt does deep equals between the two objects.
@@ -2327,17 +2748,15 @@ func (cmp *Comparator) RefOfExplainTab(a, b *ExplainTab) bool {
 		cmp.TableName(a.Table, b.Table)
 }
 
-// Exprs does deep equals between the two objects.
-func (cmp *Comparator) Exprs(a, b Exprs) bool {
-	if len(a) != len(b) {
+// RefOfExprs does deep equals between the two objects.
+func (cmp *Comparator) RefOfExprs(a, b *Exprs) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
 		return false
 	}
-	for i := 0; i < len(a); i++ {
-		if !cmp.Expr(a[i], b[i]) {
-			return false
-		}
-	}
-	return true
+	return cmp.SliceOfExpr(a.Exprs, b.Exprs)
 }
 
 // RefOfExtractFuncExpr does deep equals between the two objects.
@@ -2348,7 +2767,7 @@ func (cmp *Comparator) RefOfExtractFuncExpr(a, b *ExtractFuncExpr) bool {
 	if a == nil || b == nil {
 		return false
 	}
-	return a.IntervalTypes == b.IntervalTypes &&
+	return a.IntervalType == b.IntervalType &&
 		cmp.Expr(a.Expr, b.Expr)
 }
 
@@ -2362,24 +2781,6 @@ func (cmp *Comparator) RefOfExtractValueExpr(a, b *ExtractValueExpr) bool {
 	}
 	return cmp.Expr(a.Fragment, b.Fragment) &&
 		cmp.Expr(a.XPathExpr, b.XPathExpr)
-}
-
-// RefOfExtractedSubquery does deep equals between the two objects.
-func (cmp *Comparator) RefOfExtractedSubquery(a, b *ExtractedSubquery) bool {
-	if a == b {
-		return true
-	}
-	if a == nil || b == nil {
-		return false
-	}
-	return a.OpCode == b.OpCode &&
-		a.NeedsRewrite == b.NeedsRewrite &&
-		a.hasValuesArg == b.hasValuesArg &&
-		a.argName == b.argName &&
-		cmp.Expr(a.Original, b.Original) &&
-		cmp.RefOfSubquery(a.Subquery, b.Subquery) &&
-		cmp.Expr(a.OtherSide, b.OtherSide) &&
-		cmp.Expr(a.alternative, b.alternative)
 }
 
 // RefOfFirstOrLastValueExpr does deep equals between the two objects.
@@ -2457,6 +2858,7 @@ func (cmp *Comparator) RefOfFramePoint(a, b *FramePoint) bool {
 		return false
 	}
 	return a.Type == b.Type &&
+		a.Unit == b.Unit &&
 		cmp.Expr(a.Expr, b.Expr)
 }
 
@@ -2481,7 +2883,7 @@ func (cmp *Comparator) RefOfFuncExpr(a, b *FuncExpr) bool {
 	}
 	return cmp.IdentifierCS(a.Qualifier, b.Qualifier) &&
 		cmp.IdentifierCI(a.Name, b.Name) &&
-		cmp.SelectExprs(a.Exprs, b.Exprs)
+		cmp.SliceOfExpr(a.Exprs, b.Exprs)
 }
 
 // RefOfGTIDFuncExpr does deep equals between the two objects.
@@ -2499,17 +2901,146 @@ func (cmp *Comparator) RefOfGTIDFuncExpr(a, b *GTIDFuncExpr) bool {
 		cmp.Expr(a.Channel, b.Channel)
 }
 
-// GroupBy does deep equals between the two objects.
-func (cmp *Comparator) GroupBy(a, b GroupBy) bool {
-	if len(a) != len(b) {
+// RefOfGeoHashFromLatLongExpr does deep equals between the two objects.
+func (cmp *Comparator) RefOfGeoHashFromLatLongExpr(a, b *GeoHashFromLatLongExpr) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
 		return false
 	}
-	for i := 0; i < len(a); i++ {
-		if !cmp.Expr(a[i], b[i]) {
-			return false
-		}
+	return cmp.Expr(a.Latitude, b.Latitude) &&
+		cmp.Expr(a.Longitude, b.Longitude) &&
+		cmp.Expr(a.MaxLength, b.MaxLength)
+}
+
+// RefOfGeoHashFromPointExpr does deep equals between the two objects.
+func (cmp *Comparator) RefOfGeoHashFromPointExpr(a, b *GeoHashFromPointExpr) bool {
+	if a == b {
+		return true
 	}
-	return true
+	if a == nil || b == nil {
+		return false
+	}
+	return cmp.Expr(a.Point, b.Point) &&
+		cmp.Expr(a.MaxLength, b.MaxLength)
+}
+
+// RefOfGeoJSONFromGeomExpr does deep equals between the two objects.
+func (cmp *Comparator) RefOfGeoJSONFromGeomExpr(a, b *GeoJSONFromGeomExpr) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return cmp.Expr(a.Geom, b.Geom) &&
+		cmp.Expr(a.MaxDecimalDigits, b.MaxDecimalDigits) &&
+		cmp.Expr(a.Bitmask, b.Bitmask)
+}
+
+// RefOfGeomCollPropertyFuncExpr does deep equals between the two objects.
+func (cmp *Comparator) RefOfGeomCollPropertyFuncExpr(a, b *GeomCollPropertyFuncExpr) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.Property == b.Property &&
+		cmp.Expr(a.GeomColl, b.GeomColl) &&
+		cmp.Expr(a.PropertyDefArg, b.PropertyDefArg)
+}
+
+// RefOfGeomFormatExpr does deep equals between the two objects.
+func (cmp *Comparator) RefOfGeomFormatExpr(a, b *GeomFormatExpr) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.FormatType == b.FormatType &&
+		cmp.Expr(a.Geom, b.Geom) &&
+		cmp.Expr(a.AxisOrderOpt, b.AxisOrderOpt)
+}
+
+// RefOfGeomFromGeoHashExpr does deep equals between the two objects.
+func (cmp *Comparator) RefOfGeomFromGeoHashExpr(a, b *GeomFromGeoHashExpr) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.GeomType == b.GeomType &&
+		cmp.Expr(a.GeoHash, b.GeoHash) &&
+		cmp.Expr(a.SridOpt, b.SridOpt)
+}
+
+// RefOfGeomFromGeoJSONExpr does deep equals between the two objects.
+func (cmp *Comparator) RefOfGeomFromGeoJSONExpr(a, b *GeomFromGeoJSONExpr) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return cmp.Expr(a.GeoJSON, b.GeoJSON) &&
+		cmp.Expr(a.HigherDimHandlerOpt, b.HigherDimHandlerOpt) &&
+		cmp.Expr(a.Srid, b.Srid)
+}
+
+// RefOfGeomFromTextExpr does deep equals between the two objects.
+func (cmp *Comparator) RefOfGeomFromTextExpr(a, b *GeomFromTextExpr) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.Type == b.Type &&
+		cmp.Expr(a.WktText, b.WktText) &&
+		cmp.Expr(a.Srid, b.Srid) &&
+		cmp.Expr(a.AxisOrderOpt, b.AxisOrderOpt)
+}
+
+// RefOfGeomFromWKBExpr does deep equals between the two objects.
+func (cmp *Comparator) RefOfGeomFromWKBExpr(a, b *GeomFromWKBExpr) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.Type == b.Type &&
+		cmp.Expr(a.WkbBlob, b.WkbBlob) &&
+		cmp.Expr(a.Srid, b.Srid) &&
+		cmp.Expr(a.AxisOrderOpt, b.AxisOrderOpt)
+}
+
+// RefOfGeomPropertyFuncExpr does deep equals between the two objects.
+func (cmp *Comparator) RefOfGeomPropertyFuncExpr(a, b *GeomPropertyFuncExpr) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.Property == b.Property &&
+		cmp.Expr(a.Geom, b.Geom)
+}
+
+// RefOfGroupBy does deep equals between the two objects.
+func (cmp *Comparator) RefOfGroupBy(a, b *GroupBy) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.WithRollup == b.WithRollup &&
+		cmp.SliceOfExpr(a.Exprs, b.Exprs)
 }
 
 // RefOfGroupConcatExpr does deep equals between the two objects.
@@ -2522,9 +3053,75 @@ func (cmp *Comparator) RefOfGroupConcatExpr(a, b *GroupConcatExpr) bool {
 	}
 	return a.Distinct == b.Distinct &&
 		a.Separator == b.Separator &&
-		cmp.Exprs(a.Exprs, b.Exprs) &&
+		cmp.SliceOfExpr(a.Exprs, b.Exprs) &&
 		cmp.OrderBy(a.OrderBy, b.OrderBy) &&
 		cmp.RefOfLimit(a.Limit, b.Limit)
+}
+
+// RefOfHandlerConditionErrorCode does deep equals between the two objects.
+func (cmp *Comparator) RefOfHandlerConditionErrorCode(a, b *HandlerConditionErrorCode) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.ErrorCode == b.ErrorCode
+}
+
+// RefOfHandlerConditionNamed does deep equals between the two objects.
+func (cmp *Comparator) RefOfHandlerConditionNamed(a, b *HandlerConditionNamed) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return cmp.IdentifierCI(a.Name, b.Name)
+}
+
+// RefOfHandlerConditionNotFound does deep equals between the two objects.
+func (cmp *Comparator) RefOfHandlerConditionNotFound(a, b *HandlerConditionNotFound) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return true
+}
+
+// RefOfHandlerConditionSQLException does deep equals between the two objects.
+func (cmp *Comparator) RefOfHandlerConditionSQLException(a, b *HandlerConditionSQLException) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return true
+}
+
+// RefOfHandlerConditionSQLState does deep equals between the two objects.
+func (cmp *Comparator) RefOfHandlerConditionSQLState(a, b *HandlerConditionSQLState) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return cmp.RefOfLiteral(a.SQLStateValue, b.SQLStateValue)
+}
+
+// RefOfHandlerConditionSQLWarning does deep equals between the two objects.
+func (cmp *Comparator) RefOfHandlerConditionSQLWarning(a, b *HandlerConditionSQLWarning) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return true
 }
 
 // IdentifierCI does deep equals between the two objects.
@@ -2536,6 +3133,20 @@ func (cmp *Comparator) IdentifierCI(a, b IdentifierCI) bool {
 // IdentifierCS does deep equals between the two objects.
 func (cmp *Comparator) IdentifierCS(a, b IdentifierCS) bool {
 	return a.v == b.v
+}
+
+// RefOfIfStatement does deep equals between the two objects.
+func (cmp *Comparator) RefOfIfStatement(a, b *IfStatement) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return cmp.Expr(a.SearchCondition, b.SearchCondition) &&
+		cmp.RefOfCompoundStatements(a.ThenStatements, b.ThenStatements) &&
+		cmp.SliceOfRefOfElseIfBlock(a.ElseIfBlocks, b.ElseIfBlocks) &&
+		cmp.RefOfCompoundStatements(a.ElseStatements, b.ElseStatements)
 }
 
 // RefOfIndexDefinition does deep equals between the two objects.
@@ -2586,10 +3197,6 @@ func (cmp *Comparator) RefOfIndexInfo(a, b *IndexInfo) bool {
 		return false
 	}
 	return a.Type == b.Type &&
-		a.Primary == b.Primary &&
-		a.Spatial == b.Spatial &&
-		a.Fulltext == b.Fulltext &&
-		a.Unique == b.Unique &&
 		cmp.IdentifierCI(a.Name, b.Name) &&
 		cmp.IdentifierCI(a.ConstraintName, b.ConstraintName)
 }
@@ -2605,10 +3212,11 @@ func (cmp *Comparator) RefOfInsert(a, b *Insert) bool {
 	return a.Action == b.Action &&
 		cmp.RefOfParsedComments(a.Comments, b.Comments) &&
 		a.Ignore == b.Ignore &&
-		cmp.TableName(a.Table, b.Table) &&
+		cmp.RefOfAliasedTableExpr(a.Table, b.Table) &&
 		cmp.Partitions(a.Partitions, b.Partitions) &&
 		cmp.Columns(a.Columns, b.Columns) &&
 		cmp.InsertRows(a.Rows, b.Rows) &&
+		cmp.RefOfRowAlias(a.RowAlias, b.RowAlias) &&
 		cmp.OnDup(a.OnDup, b.OnDup)
 }
 
@@ -2626,16 +3234,18 @@ func (cmp *Comparator) RefOfInsertExpr(a, b *InsertExpr) bool {
 		cmp.Expr(a.NewStr, b.NewStr)
 }
 
-// RefOfIntervalExpr does deep equals between the two objects.
-func (cmp *Comparator) RefOfIntervalExpr(a, b *IntervalExpr) bool {
+// RefOfIntervalDateExpr does deep equals between the two objects.
+func (cmp *Comparator) RefOfIntervalDateExpr(a, b *IntervalDateExpr) bool {
 	if a == b {
 		return true
 	}
 	if a == nil || b == nil {
 		return false
 	}
-	return a.Unit == b.Unit &&
-		cmp.Expr(a.Expr, b.Expr)
+	return a.Syntax == b.Syntax &&
+		cmp.Expr(a.Date, b.Date) &&
+		cmp.Expr(a.Interval, b.Interval) &&
+		a.Unit == b.Unit
 }
 
 // RefOfIntervalFuncExpr does deep equals between the two objects.
@@ -2647,7 +3257,7 @@ func (cmp *Comparator) RefOfIntervalFuncExpr(a, b *IntervalFuncExpr) bool {
 		return false
 	}
 	return cmp.Expr(a.Expr, b.Expr) &&
-		cmp.Exprs(a.Exprs, b.Exprs)
+		cmp.SliceOfExpr(a.Exprs, b.Exprs)
 }
 
 // RefOfIntroducerExpr does deep equals between the two objects.
@@ -2674,6 +3284,18 @@ func (cmp *Comparator) RefOfIsExpr(a, b *IsExpr) bool {
 		a.Right == b.Right
 }
 
+// RefOfJSONArrayAgg does deep equals between the two objects.
+func (cmp *Comparator) RefOfJSONArrayAgg(a, b *JSONArrayAgg) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return cmp.Expr(a.Expr, b.Expr) &&
+		cmp.RefOfOverClause(a.OverClause, b.OverClause)
+}
+
 // RefOfJSONArrayExpr does deep equals between the two objects.
 func (cmp *Comparator) RefOfJSONArrayExpr(a, b *JSONArrayExpr) bool {
 	if a == b {
@@ -2682,7 +3304,7 @@ func (cmp *Comparator) RefOfJSONArrayExpr(a, b *JSONArrayExpr) bool {
 	if a == nil || b == nil {
 		return false
 	}
-	return cmp.Exprs(a.Params, b.Params)
+	return cmp.SliceOfExpr(a.Params, b.Params)
 }
 
 // RefOfJSONAttributesExpr does deep equals between the two objects.
@@ -2746,6 +3368,19 @@ func (cmp *Comparator) RefOfJSONKeysExpr(a, b *JSONKeysExpr) bool {
 	}
 	return cmp.Expr(a.JSONDoc, b.JSONDoc) &&
 		cmp.Expr(a.Path, b.Path)
+}
+
+// RefOfJSONObjectAgg does deep equals between the two objects.
+func (cmp *Comparator) RefOfJSONObjectAgg(a, b *JSONObjectAgg) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return cmp.Expr(a.Key, b.Key) &&
+		cmp.Expr(a.Value, b.Value) &&
+		cmp.RefOfOverClause(a.OverClause, b.OverClause)
 }
 
 // RefOfJSONObjectExpr does deep equals between the two objects.
@@ -2814,7 +3449,7 @@ func (cmp *Comparator) RefOfJSONRemoveExpr(a, b *JSONRemoveExpr) bool {
 		return false
 	}
 	return cmp.Expr(a.JSONDoc, b.JSONDoc) &&
-		cmp.Exprs(a.PathList, b.PathList)
+		cmp.SliceOfExpr(a.PathList, b.PathList)
 }
 
 // RefOfJSONSchemaValidFuncExpr does deep equals between the two objects.
@@ -2928,7 +3563,7 @@ func (cmp *Comparator) RefOfJSONValueMergeExpr(a, b *JSONValueMergeExpr) bool {
 	}
 	return a.Type == b.Type &&
 		cmp.Expr(a.JSONDoc, b.JSONDoc) &&
-		cmp.Exprs(a.JSONDocList, b.JSONDocList)
+		cmp.SliceOfExpr(a.JSONDocList, b.JSONDocList)
 }
 
 // RefOfJSONValueModifierExpr does deep equals between the two objects.
@@ -3006,6 +3641,18 @@ func (cmp *Comparator) RefOfKeyState(a, b *KeyState) bool {
 	return a.Enable == b.Enable
 }
 
+// RefOfKill does deep equals between the two objects.
+func (cmp *Comparator) RefOfKill(a, b *Kill) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.ProcesslistID == b.ProcesslistID &&
+		a.Type == b.Type
+}
+
 // RefOfLagLeadExpr does deep equals between the two objects.
 func (cmp *Comparator) RefOfLagLeadExpr(a, b *LagLeadExpr) bool {
 	if a == b {
@@ -3042,7 +3689,20 @@ func (cmp *Comparator) RefOfLineStringExpr(a, b *LineStringExpr) bool {
 	if a == nil || b == nil {
 		return false
 	}
-	return cmp.Exprs(a.PointParams, b.PointParams)
+	return cmp.SliceOfExpr(a.PointParams, b.PointParams)
+}
+
+// RefOfLinestrPropertyFuncExpr does deep equals between the two objects.
+func (cmp *Comparator) RefOfLinestrPropertyFuncExpr(a, b *LinestrPropertyFuncExpr) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.Property == b.Property &&
+		cmp.Expr(a.Linestring, b.Linestring) &&
+		cmp.Expr(a.PropertyDefArg, b.PropertyDefArg)
 }
 
 // RefOfLiteral does deep equals between the two objects.
@@ -3138,7 +3798,8 @@ func (cmp *Comparator) RefOfMax(a, b *Max) bool {
 		return false
 	}
 	return a.Distinct == b.Distinct &&
-		cmp.Expr(a.Arg, b.Arg)
+		cmp.Expr(a.Arg, b.Arg) &&
+		cmp.RefOfOverClause(a.OverClause, b.OverClause)
 }
 
 // RefOfMemberOfExpr does deep equals between the two objects.
@@ -3162,7 +3823,8 @@ func (cmp *Comparator) RefOfMin(a, b *Min) bool {
 		return false
 	}
 	return a.Distinct == b.Distinct &&
-		cmp.Expr(a.Arg, b.Arg)
+		cmp.Expr(a.Arg, b.Arg) &&
+		cmp.RefOfOverClause(a.OverClause, b.OverClause)
 }
 
 // RefOfModifyColumn does deep equals between the two objects.
@@ -3176,6 +3838,39 @@ func (cmp *Comparator) RefOfModifyColumn(a, b *ModifyColumn) bool {
 	return a.First == b.First &&
 		cmp.RefOfColumnDefinition(a.NewColDefinition, b.NewColDefinition) &&
 		cmp.RefOfColName(a.After, b.After)
+}
+
+// RefOfMultiLinestringExpr does deep equals between the two objects.
+func (cmp *Comparator) RefOfMultiLinestringExpr(a, b *MultiLinestringExpr) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return cmp.SliceOfExpr(a.LinestringParams, b.LinestringParams)
+}
+
+// RefOfMultiPointExpr does deep equals between the two objects.
+func (cmp *Comparator) RefOfMultiPointExpr(a, b *MultiPointExpr) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return cmp.SliceOfExpr(a.PointParams, b.PointParams)
+}
+
+// RefOfMultiPolygonExpr does deep equals between the two objects.
+func (cmp *Comparator) RefOfMultiPolygonExpr(a, b *MultiPolygonExpr) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return cmp.SliceOfExpr(a.PolygonParams, b.PolygonParams)
 }
 
 // RefOfNTHValueExpr does deep equals between the two objects.
@@ -3282,7 +3977,7 @@ func (cmp *Comparator) RefOfOffset(a, b *Offset) bool {
 		return false
 	}
 	return a.V == b.V &&
-		a.Original == b.Original
+		cmp.Expr(a.Original, b.Original)
 }
 
 // OnDup does deep equals between the two objects.
@@ -3359,17 +4054,6 @@ func (cmp *Comparator) RefOfOrderByOption(a, b *OrderByOption) bool {
 
 // RefOfOtherAdmin does deep equals between the two objects.
 func (cmp *Comparator) RefOfOtherAdmin(a, b *OtherAdmin) bool {
-	if a == b {
-		return true
-	}
-	if a == nil || b == nil {
-		return false
-	}
-	return true
-}
-
-// RefOfOtherRead does deep equals between the two objects.
-func (cmp *Comparator) RefOfOtherRead(a, b *OtherRead) bool {
 	if a == b {
 		return true
 	}
@@ -3541,6 +4225,43 @@ func (cmp *Comparator) RefOfPointExpr(a, b *PointExpr) bool {
 		cmp.Expr(a.YCordinate, b.YCordinate)
 }
 
+// RefOfPointPropertyFuncExpr does deep equals between the two objects.
+func (cmp *Comparator) RefOfPointPropertyFuncExpr(a, b *PointPropertyFuncExpr) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.Property == b.Property &&
+		cmp.Expr(a.Point, b.Point) &&
+		cmp.Expr(a.ValueToSet, b.ValueToSet)
+}
+
+// RefOfPolygonExpr does deep equals between the two objects.
+func (cmp *Comparator) RefOfPolygonExpr(a, b *PolygonExpr) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return cmp.SliceOfExpr(a.LinestringParams, b.LinestringParams)
+}
+
+// RefOfPolygonPropertyFuncExpr does deep equals between the two objects.
+func (cmp *Comparator) RefOfPolygonPropertyFuncExpr(a, b *PolygonPropertyFuncExpr) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.Property == b.Property &&
+		cmp.Expr(a.Polygon, b.Polygon) &&
+		cmp.Expr(a.PropertyDefArg, b.PropertyDefArg)
+}
+
 // RefOfPrepareStmt does deep equals between the two objects.
 func (cmp *Comparator) RefOfPrepareStmt(a, b *PrepareStmt) bool {
 	if a == b {
@@ -3552,6 +4273,31 @@ func (cmp *Comparator) RefOfPrepareStmt(a, b *PrepareStmt) bool {
 	return cmp.IdentifierCI(a.Name, b.Name) &&
 		cmp.Expr(a.Statement, b.Statement) &&
 		cmp.RefOfParsedComments(a.Comments, b.Comments)
+}
+
+// RefOfProcParameter does deep equals between the two objects.
+func (cmp *Comparator) RefOfProcParameter(a, b *ProcParameter) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.Mode == b.Mode &&
+		cmp.IdentifierCI(a.Name, b.Name) &&
+		cmp.RefOfColumnType(a.Type, b.Type)
+}
+
+// RefOfPurgeBinaryLogs does deep equals between the two objects.
+func (cmp *Comparator) RefOfPurgeBinaryLogs(a, b *PurgeBinaryLogs) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.To == b.To &&
+		a.Before == b.Before
 }
 
 // RefOfReferenceDefinition does deep equals between the two objects.
@@ -3714,6 +4460,18 @@ func (cmp *Comparator) RootNode(a, b RootNode) bool {
 	return cmp.SQLNode(a.SQLNode, b.SQLNode)
 }
 
+// RefOfRowAlias does deep equals between the two objects.
+func (cmp *Comparator) RefOfRowAlias(a, b *RowAlias) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return cmp.IdentifierCS(a.TableName, b.TableName) &&
+		cmp.Columns(a.Columns, b.Columns)
+}
+
 // RefOfSRollback does deep equals between the two objects.
 func (cmp *Comparator) RefOfSRollback(a, b *SRollback) bool {
 	if a == b {
@@ -3745,15 +4503,19 @@ func (cmp *Comparator) RefOfSelect(a, b *Select) bool {
 		return false
 	}
 	return a.Distinct == b.Distinct &&
+		a.HighPriority == b.HighPriority &&
 		a.StraightJoinHint == b.StraightJoinHint &&
+		a.SQLSmallResult == b.SQLSmallResult &&
+		a.SQLBigResult == b.SQLBigResult &&
+		a.SQLBufferResult == b.SQLBufferResult &&
 		a.SQLCalcFoundRows == b.SQLCalcFoundRows &&
 		cmp.RefOfBool(a.Cache, b.Cache) &&
+		cmp.RefOfWith(a.With, b.With) &&
 		cmp.SliceOfTableExpr(a.From, b.From) &&
 		cmp.RefOfParsedComments(a.Comments, b.Comments) &&
-		cmp.SelectExprs(a.SelectExprs, b.SelectExprs) &&
+		cmp.RefOfSelectExprs(a.SelectExprs, b.SelectExprs) &&
 		cmp.RefOfWhere(a.Where, b.Where) &&
-		cmp.RefOfWith(a.With, b.With) &&
-		cmp.GroupBy(a.GroupBy, b.GroupBy) &&
+		cmp.RefOfGroupBy(a.GroupBy, b.GroupBy) &&
 		cmp.RefOfWhere(a.Having, b.Having) &&
 		cmp.NamedWindows(a.Windows, b.Windows) &&
 		cmp.OrderBy(a.OrderBy, b.OrderBy) &&
@@ -3762,17 +4524,15 @@ func (cmp *Comparator) RefOfSelect(a, b *Select) bool {
 		cmp.RefOfSelectInto(a.Into, b.Into)
 }
 
-// SelectExprs does deep equals between the two objects.
-func (cmp *Comparator) SelectExprs(a, b SelectExprs) bool {
-	if len(a) != len(b) {
+// RefOfSelectExprs does deep equals between the two objects.
+func (cmp *Comparator) RefOfSelectExprs(a, b *SelectExprs) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
 		return false
 	}
-	for i := 0; i < len(a); i++ {
-		if !cmp.SelectExpr(a[i], b[i]) {
-			return false
-		}
-	}
-	return true
+	return cmp.SliceOfSelectExpr(a.Exprs, b.Exprs)
 }
 
 // RefOfSelectInto does deep equals between the two objects.
@@ -3789,6 +4549,7 @@ func (cmp *Comparator) RefOfSelectInto(a, b *SelectInto) bool {
 		a.Manifest == b.Manifest &&
 		a.Overwrite == b.Overwrite &&
 		a.Type == b.Type &&
+		cmp.SliceOfRefOfVariable(a.VarList, b.VarList) &&
 		cmp.ColumnCharset(a.Charset, b.Charset)
 }
 
@@ -3924,6 +4685,53 @@ func (cmp *Comparator) RefOfShowThrottlerStatus(a, b *ShowThrottlerStatus) bool 
 	return cmp.Comments(a.Comments, b.Comments)
 }
 
+// RefOfShowTransactionStatus does deep equals between the two objects.
+func (cmp *Comparator) RefOfShowTransactionStatus(a, b *ShowTransactionStatus) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.Keyspace == b.Keyspace &&
+		a.TransactionID == b.TransactionID
+}
+
+// RefOfSignal does deep equals between the two objects.
+func (cmp *Comparator) RefOfSignal(a, b *Signal) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return cmp.HandlerCondition(a.Condition, b.Condition) &&
+		cmp.SliceOfRefOfSignalSet(a.SetValues, b.SetValues)
+}
+
+// RefOfSignalSet does deep equals between the two objects.
+func (cmp *Comparator) RefOfSignalSet(a, b *SignalSet) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.ConditionName == b.ConditionName &&
+		cmp.Expr(a.Value, b.Value)
+}
+
+// RefOfSingleStatement does deep equals between the two objects.
+func (cmp *Comparator) RefOfSingleStatement(a, b *SingleStatement) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return cmp.Statement(a.Statement, b.Statement)
+}
+
 // RefOfStarExpr does deep equals between the two objects.
 func (cmp *Comparator) RefOfStarExpr(a, b *StarExpr) bool {
 	if a == b {
@@ -3943,7 +4751,8 @@ func (cmp *Comparator) RefOfStd(a, b *Std) bool {
 	if a == nil || b == nil {
 		return false
 	}
-	return cmp.Expr(a.Arg, b.Arg)
+	return cmp.Expr(a.Arg, b.Arg) &&
+		cmp.RefOfOverClause(a.OverClause, b.OverClause)
 }
 
 // RefOfStdDev does deep equals between the two objects.
@@ -3954,7 +4763,8 @@ func (cmp *Comparator) RefOfStdDev(a, b *StdDev) bool {
 	if a == nil || b == nil {
 		return false
 	}
-	return cmp.Expr(a.Arg, b.Arg)
+	return cmp.Expr(a.Arg, b.Arg) &&
+		cmp.RefOfOverClause(a.OverClause, b.OverClause)
 }
 
 // RefOfStdPop does deep equals between the two objects.
@@ -3965,7 +4775,8 @@ func (cmp *Comparator) RefOfStdPop(a, b *StdPop) bool {
 	if a == nil || b == nil {
 		return false
 	}
-	return cmp.Expr(a.Arg, b.Arg)
+	return cmp.Expr(a.Arg, b.Arg) &&
+		cmp.RefOfOverClause(a.OverClause, b.OverClause)
 }
 
 // RefOfStdSamp does deep equals between the two objects.
@@ -3976,7 +4787,8 @@ func (cmp *Comparator) RefOfStdSamp(a, b *StdSamp) bool {
 	if a == nil || b == nil {
 		return false
 	}
-	return cmp.Expr(a.Arg, b.Arg)
+	return cmp.Expr(a.Arg, b.Arg) &&
+		cmp.RefOfOverClause(a.OverClause, b.OverClause)
 }
 
 // RefOfStream does deep equals between the two objects.
@@ -4058,7 +4870,7 @@ func (cmp *Comparator) RefOfSubquery(a, b *Subquery) bool {
 	if a == nil || b == nil {
 		return false
 	}
-	return cmp.SelectStatement(a.Select, b.Select)
+	return cmp.TableStatement(a.Select, b.Select)
 }
 
 // RefOfSubstrExpr does deep equals between the two objects.
@@ -4083,7 +4895,8 @@ func (cmp *Comparator) RefOfSum(a, b *Sum) bool {
 		return false
 	}
 	return a.Distinct == b.Distinct &&
-		cmp.Expr(a.Arg, b.Arg)
+		cmp.Expr(a.Arg, b.Arg) &&
+		cmp.RefOfOverClause(a.OverClause, b.OverClause)
 }
 
 // TableExprs does deep equals between the two objects.
@@ -4157,18 +4970,17 @@ func (cmp *Comparator) RefOfTablespaceOperation(a, b *TablespaceOperation) bool 
 	return a.Import == b.Import
 }
 
-// RefOfTimestampFuncExpr does deep equals between the two objects.
-func (cmp *Comparator) RefOfTimestampFuncExpr(a, b *TimestampFuncExpr) bool {
+// RefOfTimestampDiffExpr does deep equals between the two objects.
+func (cmp *Comparator) RefOfTimestampDiffExpr(a, b *TimestampDiffExpr) bool {
 	if a == b {
 		return true
 	}
 	if a == nil || b == nil {
 		return false
 	}
-	return a.Name == b.Name &&
-		a.Unit == b.Unit &&
-		cmp.Expr(a.Expr1, b.Expr1) &&
-		cmp.Expr(a.Expr2, b.Expr2)
+	return cmp.Expr(a.Expr1, b.Expr1) &&
+		cmp.Expr(a.Expr2, b.Expr2) &&
+		a.Unit == b.Unit
 }
 
 // RefOfTrimFuncExpr does deep equals between the two objects.
@@ -4217,10 +5029,10 @@ func (cmp *Comparator) RefOfUnion(a, b *Union) bool {
 		return false
 	}
 	return a.Distinct == b.Distinct &&
-		cmp.SelectStatement(a.Left, b.Left) &&
-		cmp.SelectStatement(a.Right, b.Right) &&
-		cmp.OrderBy(a.OrderBy, b.OrderBy) &&
 		cmp.RefOfWith(a.With, b.With) &&
+		cmp.TableStatement(a.Left, b.Left) &&
+		cmp.TableStatement(a.Right, b.Right) &&
+		cmp.OrderBy(a.OrderBy, b.OrderBy) &&
 		cmp.RefOfLimit(a.Limit, b.Limit) &&
 		a.Lock == b.Lock &&
 		cmp.RefOfSelectInto(a.Into, b.Into)
@@ -4248,7 +5060,7 @@ func (cmp *Comparator) RefOfUpdate(a, b *Update) bool {
 	return cmp.RefOfWith(a.With, b.With) &&
 		cmp.RefOfParsedComments(a.Comments, b.Comments) &&
 		a.Ignore == b.Ignore &&
-		cmp.TableExprs(a.TableExprs, b.TableExprs) &&
+		cmp.SliceOfTableExpr(a.TableExprs, b.TableExprs) &&
 		cmp.UpdateExprs(a.Exprs, b.Exprs) &&
 		cmp.RefOfWhere(a.Where, b.Where) &&
 		cmp.OrderBy(a.OrderBy, b.OrderBy) &&
@@ -4380,6 +5192,22 @@ func (cmp *Comparator) RefOfValuesFuncExpr(a, b *ValuesFuncExpr) bool {
 	return cmp.RefOfColName(a.Name, b.Name)
 }
 
+// RefOfValuesStatement does deep equals between the two objects.
+func (cmp *Comparator) RefOfValuesStatement(a, b *ValuesStatement) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return cmp.RefOfWith(a.With, b.With) &&
+		cmp.Values(a.Rows, b.Rows) &&
+		a.ListArg == b.ListArg &&
+		cmp.RefOfParsedComments(a.Comments, b.Comments) &&
+		cmp.OrderBy(a.Order, b.Order) &&
+		cmp.RefOfLimit(a.Limit, b.Limit)
+}
+
 // RefOfVarPop does deep equals between the two objects.
 func (cmp *Comparator) RefOfVarPop(a, b *VarPop) bool {
 	if a == b {
@@ -4388,7 +5216,8 @@ func (cmp *Comparator) RefOfVarPop(a, b *VarPop) bool {
 	if a == nil || b == nil {
 		return false
 	}
-	return cmp.Expr(a.Arg, b.Arg)
+	return cmp.Expr(a.Arg, b.Arg) &&
+		cmp.RefOfOverClause(a.OverClause, b.OverClause)
 }
 
 // RefOfVarSamp does deep equals between the two objects.
@@ -4399,7 +5228,8 @@ func (cmp *Comparator) RefOfVarSamp(a, b *VarSamp) bool {
 	if a == nil || b == nil {
 		return false
 	}
-	return cmp.Expr(a.Arg, b.Arg)
+	return cmp.Expr(a.Arg, b.Arg) &&
+		cmp.RefOfOverClause(a.OverClause, b.OverClause)
 }
 
 // RefOfVariable does deep equals between the two objects.
@@ -4422,7 +5252,8 @@ func (cmp *Comparator) RefOfVariance(a, b *Variance) bool {
 	if a == nil || b == nil {
 		return false
 	}
-	return cmp.Expr(a.Arg, b.Arg)
+	return cmp.Expr(a.Arg, b.Arg) &&
+		cmp.RefOfOverClause(a.OverClause, b.OverClause)
 }
 
 // VindexParam does deep equals between the two objects.
@@ -4514,7 +5345,7 @@ func (cmp *Comparator) RefOfWindowSpecification(a, b *WindowSpecification) bool 
 		return false
 	}
 	return cmp.IdentifierCI(a.Name, b.Name) &&
-		cmp.Exprs(a.PartitionClause, b.PartitionClause) &&
+		cmp.SliceOfExpr(a.PartitionClause, b.PartitionClause) &&
 		cmp.OrderBy(a.OrderClause, b.OrderClause) &&
 		cmp.RefOfFrameClause(a.FrameClause, b.FrameClause)
 }
@@ -4528,7 +5359,7 @@ func (cmp *Comparator) RefOfWith(a, b *With) bool {
 		return false
 	}
 	return a.Recursive == b.Recursive &&
-		cmp.SliceOfRefOfCommonTableExpr(a.Ctes, b.Ctes)
+		cmp.SliceOfRefOfCommonTableExpr(a.CTEs, b.CTEs)
 }
 
 // RefOfXorExpr does deep equals between the two objects.
@@ -4552,6 +5383,12 @@ func (cmp *Comparator) AggrFunc(inA, inB AggrFunc) bool {
 		return false
 	}
 	switch a := inA.(type) {
+	case *AnyValue:
+		b, ok := inB.(*AnyValue)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfAnyValue(a, b)
 	case *Avg:
 		b, ok := inB.(*Avg)
 		if !ok {
@@ -4594,6 +5431,18 @@ func (cmp *Comparator) AggrFunc(inA, inB AggrFunc) bool {
 			return false
 		}
 		return cmp.RefOfGroupConcatExpr(a, b)
+	case *JSONArrayAgg:
+		b, ok := inB.(*JSONArrayAgg)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfJSONArrayAgg(a, b)
+	case *JSONObjectAgg:
+		b, ok := inB.(*JSONObjectAgg)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfJSONObjectAgg(a, b)
 	case *Max:
 		b, ok := inB.(*Max)
 		if !ok {
@@ -4816,6 +5665,12 @@ func (cmp *Comparator) Callable(inA, inB Callable) bool {
 		return false
 	}
 	switch a := inA.(type) {
+	case *AnyValue:
+		b, ok := inB.(*AnyValue)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfAnyValue(a, b)
 	case *ArgumentLessWindowExpr:
 		b, ok := inB.(*ArgumentLessWindowExpr)
 		if !ok {
@@ -4894,6 +5749,66 @@ func (cmp *Comparator) Callable(inA, inB Callable) bool {
 			return false
 		}
 		return cmp.RefOfGTIDFuncExpr(a, b)
+	case *GeoHashFromLatLongExpr:
+		b, ok := inB.(*GeoHashFromLatLongExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfGeoHashFromLatLongExpr(a, b)
+	case *GeoHashFromPointExpr:
+		b, ok := inB.(*GeoHashFromPointExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfGeoHashFromPointExpr(a, b)
+	case *GeoJSONFromGeomExpr:
+		b, ok := inB.(*GeoJSONFromGeomExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfGeoJSONFromGeomExpr(a, b)
+	case *GeomCollPropertyFuncExpr:
+		b, ok := inB.(*GeomCollPropertyFuncExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfGeomCollPropertyFuncExpr(a, b)
+	case *GeomFormatExpr:
+		b, ok := inB.(*GeomFormatExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfGeomFormatExpr(a, b)
+	case *GeomFromGeoHashExpr:
+		b, ok := inB.(*GeomFromGeoHashExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfGeomFromGeoHashExpr(a, b)
+	case *GeomFromGeoJSONExpr:
+		b, ok := inB.(*GeomFromGeoJSONExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfGeomFromGeoJSONExpr(a, b)
+	case *GeomFromTextExpr:
+		b, ok := inB.(*GeomFromTextExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfGeomFromTextExpr(a, b)
+	case *GeomFromWKBExpr:
+		b, ok := inB.(*GeomFromWKBExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfGeomFromWKBExpr(a, b)
+	case *GeomPropertyFuncExpr:
+		b, ok := inB.(*GeomPropertyFuncExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfGeomPropertyFuncExpr(a, b)
 	case *GroupConcatExpr:
 		b, ok := inB.(*GroupConcatExpr)
 		if !ok {
@@ -4906,6 +5821,12 @@ func (cmp *Comparator) Callable(inA, inB Callable) bool {
 			return false
 		}
 		return cmp.RefOfInsertExpr(a, b)
+	case *IntervalDateExpr:
+		b, ok := inB.(*IntervalDateExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfIntervalDateExpr(a, b)
 	case *IntervalFuncExpr:
 		b, ok := inB.(*IntervalFuncExpr)
 		if !ok {
@@ -5044,6 +5965,12 @@ func (cmp *Comparator) Callable(inA, inB Callable) bool {
 			return false
 		}
 		return cmp.RefOfLineStringExpr(a, b)
+	case *LinestrPropertyFuncExpr:
+		b, ok := inB.(*LinestrPropertyFuncExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfLinestrPropertyFuncExpr(a, b)
 	case *LocateExpr:
 		b, ok := inB.(*LocateExpr)
 		if !ok {
@@ -5074,6 +6001,24 @@ func (cmp *Comparator) Callable(inA, inB Callable) bool {
 			return false
 		}
 		return cmp.RefOfMin(a, b)
+	case *MultiLinestringExpr:
+		b, ok := inB.(*MultiLinestringExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfMultiLinestringExpr(a, b)
+	case *MultiPointExpr:
+		b, ok := inB.(*MultiPointExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfMultiPointExpr(a, b)
+	case *MultiPolygonExpr:
+		b, ok := inB.(*MultiPolygonExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfMultiPolygonExpr(a, b)
 	case *NTHValueExpr:
 		b, ok := inB.(*NTHValueExpr)
 		if !ok {
@@ -5104,6 +6049,24 @@ func (cmp *Comparator) Callable(inA, inB Callable) bool {
 			return false
 		}
 		return cmp.RefOfPointExpr(a, b)
+	case *PointPropertyFuncExpr:
+		b, ok := inB.(*PointPropertyFuncExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfPointPropertyFuncExpr(a, b)
+	case *PolygonExpr:
+		b, ok := inB.(*PolygonExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfPolygonExpr(a, b)
+	case *PolygonPropertyFuncExpr:
+		b, ok := inB.(*PolygonPropertyFuncExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfPolygonPropertyFuncExpr(a, b)
 	case *RegexpInstrExpr:
 		b, ok := inB.(*RegexpInstrExpr)
 		if !ok {
@@ -5140,12 +6103,12 @@ func (cmp *Comparator) Callable(inA, inB Callable) bool {
 			return false
 		}
 		return cmp.RefOfSum(a, b)
-	case *TimestampFuncExpr:
-		b, ok := inB.(*TimestampFuncExpr)
+	case *TimestampDiffExpr:
+		b, ok := inB.(*TimestampDiffExpr)
 		if !ok {
 			return false
 		}
-		return cmp.RefOfTimestampFuncExpr(a, b)
+		return cmp.RefOfTimestampDiffExpr(a, b)
 	case *TrimFuncExpr:
 		b, ok := inB.(*TrimFuncExpr)
 		if !ok {
@@ -5203,6 +6166,63 @@ func (cmp *Comparator) ColTuple(inA, inB ColTuple) bool {
 			return false
 		}
 		return cmp.ValTuple(a, b)
+	default:
+		// this should never happen
+		return false
+	}
+}
+
+// CompoundStatement does deep equals between the two objects.
+func (cmp *Comparator) CompoundStatement(inA, inB CompoundStatement) bool {
+	if inA == nil && inB == nil {
+		return true
+	}
+	if inA == nil || inB == nil {
+		return false
+	}
+	switch a := inA.(type) {
+	case *BeginEndStatement:
+		b, ok := inB.(*BeginEndStatement)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfBeginEndStatement(a, b)
+	case *DeclareCondition:
+		b, ok := inB.(*DeclareCondition)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfDeclareCondition(a, b)
+	case *DeclareHandler:
+		b, ok := inB.(*DeclareHandler)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfDeclareHandler(a, b)
+	case *DeclareVar:
+		b, ok := inB.(*DeclareVar)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfDeclareVar(a, b)
+	case *IfStatement:
+		b, ok := inB.(*IfStatement)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfIfStatement(a, b)
+	case *Signal:
+		b, ok := inB.(*Signal)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfSignal(a, b)
+	case *SingleStatement:
+		b, ok := inB.(*SingleStatement)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfSingleStatement(a, b)
 	default:
 		// this should never happen
 		return false
@@ -5290,6 +6310,12 @@ func (cmp *Comparator) DDLStatement(inA, inB DDLStatement) bool {
 			return false
 		}
 		return cmp.RefOfAlterView(a, b)
+	case *CreateProcedure:
+		b, ok := inB.(*CreateProcedure)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfCreateProcedure(a, b)
 	case *CreateTable:
 		b, ok := inB.(*CreateTable)
 		if !ok {
@@ -5302,6 +6328,12 @@ func (cmp *Comparator) DDLStatement(inA, inB DDLStatement) bool {
 			return false
 		}
 		return cmp.RefOfCreateView(a, b)
+	case *DropProcedure:
+		b, ok := inB.(*DropProcedure)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfDropProcedure(a, b)
 	case *DropTable:
 		b, ok := inB.(*DropTable)
 		if !ok {
@@ -5374,18 +6406,30 @@ func (cmp *Comparator) Expr(inA, inB Expr) bool {
 			return false
 		}
 		return cmp.RefOfAndExpr(a, b)
-	case Argument:
-		b, ok := inB.(Argument)
+	case *AnyValue:
+		b, ok := inB.(*AnyValue)
 		if !ok {
 			return false
 		}
-		return a == b
+		return cmp.RefOfAnyValue(a, b)
+	case *Argument:
+		b, ok := inB.(*Argument)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfArgument(a, b)
 	case *ArgumentLessWindowExpr:
 		b, ok := inB.(*ArgumentLessWindowExpr)
 		if !ok {
 			return false
 		}
 		return cmp.RefOfArgumentLessWindowExpr(a, b)
+	case *AssignmentExpr:
+		b, ok := inB.(*AssignmentExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfAssignmentExpr(a, b)
 	case *Avg:
 		b, ok := inB.(*Avg)
 		if !ok {
@@ -5518,12 +6562,6 @@ func (cmp *Comparator) Expr(inA, inB Expr) bool {
 			return false
 		}
 		return cmp.RefOfExtractValueExpr(a, b)
-	case *ExtractedSubquery:
-		b, ok := inB.(*ExtractedSubquery)
-		if !ok {
-			return false
-		}
-		return cmp.RefOfExtractedSubquery(a, b)
 	case *FirstOrLastValueExpr:
 		b, ok := inB.(*FirstOrLastValueExpr)
 		if !ok {
@@ -5542,6 +6580,66 @@ func (cmp *Comparator) Expr(inA, inB Expr) bool {
 			return false
 		}
 		return cmp.RefOfGTIDFuncExpr(a, b)
+	case *GeoHashFromLatLongExpr:
+		b, ok := inB.(*GeoHashFromLatLongExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfGeoHashFromLatLongExpr(a, b)
+	case *GeoHashFromPointExpr:
+		b, ok := inB.(*GeoHashFromPointExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfGeoHashFromPointExpr(a, b)
+	case *GeoJSONFromGeomExpr:
+		b, ok := inB.(*GeoJSONFromGeomExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfGeoJSONFromGeomExpr(a, b)
+	case *GeomCollPropertyFuncExpr:
+		b, ok := inB.(*GeomCollPropertyFuncExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfGeomCollPropertyFuncExpr(a, b)
+	case *GeomFormatExpr:
+		b, ok := inB.(*GeomFormatExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfGeomFormatExpr(a, b)
+	case *GeomFromGeoHashExpr:
+		b, ok := inB.(*GeomFromGeoHashExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfGeomFromGeoHashExpr(a, b)
+	case *GeomFromGeoJSONExpr:
+		b, ok := inB.(*GeomFromGeoJSONExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfGeomFromGeoJSONExpr(a, b)
+	case *GeomFromTextExpr:
+		b, ok := inB.(*GeomFromTextExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfGeomFromTextExpr(a, b)
+	case *GeomFromWKBExpr:
+		b, ok := inB.(*GeomFromWKBExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfGeomFromWKBExpr(a, b)
+	case *GeomPropertyFuncExpr:
+		b, ok := inB.(*GeomPropertyFuncExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfGeomPropertyFuncExpr(a, b)
 	case *GroupConcatExpr:
 		b, ok := inB.(*GroupConcatExpr)
 		if !ok {
@@ -5554,12 +6652,12 @@ func (cmp *Comparator) Expr(inA, inB Expr) bool {
 			return false
 		}
 		return cmp.RefOfInsertExpr(a, b)
-	case *IntervalExpr:
-		b, ok := inB.(*IntervalExpr)
+	case *IntervalDateExpr:
+		b, ok := inB.(*IntervalDateExpr)
 		if !ok {
 			return false
 		}
-		return cmp.RefOfIntervalExpr(a, b)
+		return cmp.RefOfIntervalDateExpr(a, b)
 	case *IntervalFuncExpr:
 		b, ok := inB.(*IntervalFuncExpr)
 		if !ok {
@@ -5578,6 +6676,12 @@ func (cmp *Comparator) Expr(inA, inB Expr) bool {
 			return false
 		}
 		return cmp.RefOfIsExpr(a, b)
+	case *JSONArrayAgg:
+		b, ok := inB.(*JSONArrayAgg)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfJSONArrayAgg(a, b)
 	case *JSONArrayExpr:
 		b, ok := inB.(*JSONArrayExpr)
 		if !ok {
@@ -5614,6 +6718,12 @@ func (cmp *Comparator) Expr(inA, inB Expr) bool {
 			return false
 		}
 		return cmp.RefOfJSONKeysExpr(a, b)
+	case *JSONObjectAgg:
+		b, ok := inB.(*JSONObjectAgg)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfJSONObjectAgg(a, b)
 	case *JSONObjectExpr:
 		b, ok := inB.(*JSONObjectExpr)
 		if !ok {
@@ -5710,6 +6820,12 @@ func (cmp *Comparator) Expr(inA, inB Expr) bool {
 			return false
 		}
 		return cmp.RefOfLineStringExpr(a, b)
+	case *LinestrPropertyFuncExpr:
+		b, ok := inB.(*LinestrPropertyFuncExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfLinestrPropertyFuncExpr(a, b)
 	case ListArg:
 		b, ok := inB.(ListArg)
 		if !ok {
@@ -5758,6 +6874,24 @@ func (cmp *Comparator) Expr(inA, inB Expr) bool {
 			return false
 		}
 		return cmp.RefOfMin(a, b)
+	case *MultiLinestringExpr:
+		b, ok := inB.(*MultiLinestringExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfMultiLinestringExpr(a, b)
+	case *MultiPointExpr:
+		b, ok := inB.(*MultiPointExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfMultiPointExpr(a, b)
+	case *MultiPolygonExpr:
+		b, ok := inB.(*MultiPolygonExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfMultiPolygonExpr(a, b)
 	case *NTHValueExpr:
 		b, ok := inB.(*NTHValueExpr)
 		if !ok {
@@ -5812,6 +6946,24 @@ func (cmp *Comparator) Expr(inA, inB Expr) bool {
 			return false
 		}
 		return cmp.RefOfPointExpr(a, b)
+	case *PointPropertyFuncExpr:
+		b, ok := inB.(*PointPropertyFuncExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfPointPropertyFuncExpr(a, b)
+	case *PolygonExpr:
+		b, ok := inB.(*PolygonExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfPolygonExpr(a, b)
+	case *PolygonPropertyFuncExpr:
+		b, ok := inB.(*PolygonPropertyFuncExpr)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfPolygonPropertyFuncExpr(a, b)
 	case *RegexpInstrExpr:
 		b, ok := inB.(*RegexpInstrExpr)
 		if !ok {
@@ -5878,12 +7030,12 @@ func (cmp *Comparator) Expr(inA, inB Expr) bool {
 			return false
 		}
 		return cmp.RefOfSum(a, b)
-	case *TimestampFuncExpr:
-		b, ok := inB.(*TimestampFuncExpr)
+	case *TimestampDiffExpr:
+		b, ok := inB.(*TimestampDiffExpr)
 		if !ok {
 			return false
 		}
-		return cmp.RefOfTimestampFuncExpr(a, b)
+		return cmp.RefOfTimestampDiffExpr(a, b)
 	case *TrimFuncExpr:
 		b, ok := inB.(*TrimFuncExpr)
 		if !ok {
@@ -5956,6 +7108,57 @@ func (cmp *Comparator) Expr(inA, inB Expr) bool {
 	}
 }
 
+// HandlerCondition does deep equals between the two objects.
+func (cmp *Comparator) HandlerCondition(inA, inB HandlerCondition) bool {
+	if inA == nil && inB == nil {
+		return true
+	}
+	if inA == nil || inB == nil {
+		return false
+	}
+	switch a := inA.(type) {
+	case *HandlerConditionErrorCode:
+		b, ok := inB.(*HandlerConditionErrorCode)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfHandlerConditionErrorCode(a, b)
+	case *HandlerConditionNamed:
+		b, ok := inB.(*HandlerConditionNamed)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfHandlerConditionNamed(a, b)
+	case *HandlerConditionNotFound:
+		b, ok := inB.(*HandlerConditionNotFound)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfHandlerConditionNotFound(a, b)
+	case *HandlerConditionSQLException:
+		b, ok := inB.(*HandlerConditionSQLException)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfHandlerConditionSQLException(a, b)
+	case *HandlerConditionSQLState:
+		b, ok := inB.(*HandlerConditionSQLState)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfHandlerConditionSQLState(a, b)
+	case *HandlerConditionSQLWarning:
+		b, ok := inB.(*HandlerConditionSQLWarning)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfHandlerConditionSQLWarning(a, b)
+	default:
+		// this should never happen
+		return false
+	}
+}
+
 // InsertRows does deep equals between the two objects.
 func (cmp *Comparator) InsertRows(inA, inB InsertRows) bool {
 	if inA == nil && inB == nil {
@@ -5983,6 +7186,12 @@ func (cmp *Comparator) InsertRows(inA, inB InsertRows) bool {
 			return false
 		}
 		return cmp.Values(a, b)
+	case *ValuesStatement:
+		b, ok := inB.(*ValuesStatement)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfValuesStatement(a, b)
 	default:
 		// this should never happen
 		return false
@@ -6076,6 +7285,12 @@ func (cmp *Comparator) ShowInternal(inA, inB ShowInternal) bool {
 			return false
 		}
 		return cmp.RefOfShowOther(a, b)
+	case *ShowTransactionStatus:
+		b, ok := inB.(*ShowTransactionStatus)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfShowTransactionStatus(a, b)
 	default:
 		// this should never happen
 		return false
@@ -6148,6 +7363,12 @@ func (cmp *Comparator) Statement(inA, inB Statement) bool {
 			return false
 		}
 		return cmp.RefOfAlterVschema(a, b)
+	case *Analyze:
+		b, ok := inB.(*Analyze)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfAnalyze(a, b)
 	case *Begin:
 		b, ok := inB.(*Begin)
 		if !ok {
@@ -6178,6 +7399,12 @@ func (cmp *Comparator) Statement(inA, inB Statement) bool {
 			return false
 		}
 		return cmp.RefOfCreateDatabase(a, b)
+	case *CreateProcedure:
+		b, ok := inB.(*CreateProcedure)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfCreateProcedure(a, b)
 	case *CreateTable:
 		b, ok := inB.(*CreateTable)
 		if !ok {
@@ -6208,6 +7435,12 @@ func (cmp *Comparator) Statement(inA, inB Statement) bool {
 			return false
 		}
 		return cmp.RefOfDropDatabase(a, b)
+	case *DropProcedure:
+		b, ok := inB.(*DropProcedure)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfDropProcedure(a, b)
 	case *DropTable:
 		b, ok := inB.(*DropTable)
 		if !ok {
@@ -6250,6 +7483,12 @@ func (cmp *Comparator) Statement(inA, inB Statement) bool {
 			return false
 		}
 		return cmp.RefOfInsert(a, b)
+	case *Kill:
+		b, ok := inB.(*Kill)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfKill(a, b)
 	case *Load:
 		b, ok := inB.(*Load)
 		if !ok {
@@ -6268,18 +7507,18 @@ func (cmp *Comparator) Statement(inA, inB Statement) bool {
 			return false
 		}
 		return cmp.RefOfOtherAdmin(a, b)
-	case *OtherRead:
-		b, ok := inB.(*OtherRead)
-		if !ok {
-			return false
-		}
-		return cmp.RefOfOtherRead(a, b)
 	case *PrepareStmt:
 		b, ok := inB.(*PrepareStmt)
 		if !ok {
 			return false
 		}
 		return cmp.RefOfPrepareStmt(a, b)
+	case *PurgeBinaryLogs:
+		b, ok := inB.(*PurgeBinaryLogs)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfPurgeBinaryLogs(a, b)
 	case *Release:
 		b, ok := inB.(*Release)
 		if !ok {
@@ -6400,6 +7639,12 @@ func (cmp *Comparator) Statement(inA, inB Statement) bool {
 			return false
 		}
 		return cmp.RefOfVStream(a, b)
+	case *ValuesStatement:
+		b, ok := inB.(*ValuesStatement)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfValuesStatement(a, b)
 	default:
 		// this should never happen
 		return false
@@ -6439,6 +7684,39 @@ func (cmp *Comparator) TableExpr(inA, inB TableExpr) bool {
 			return false
 		}
 		return cmp.RefOfParenTableExpr(a, b)
+	default:
+		// this should never happen
+		return false
+	}
+}
+
+// TableStatement does deep equals between the two objects.
+func (cmp *Comparator) TableStatement(inA, inB TableStatement) bool {
+	if inA == nil && inB == nil {
+		return true
+	}
+	if inA == nil || inB == nil {
+		return false
+	}
+	switch a := inA.(type) {
+	case *Select:
+		b, ok := inB.(*Select)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfSelect(a, b)
+	case *Union:
+		b, ok := inB.(*Union)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfUnion(a, b)
+	case *ValuesStatement:
+		b, ok := inB.(*ValuesStatement)
+		if !ok {
+			return false
+		}
+		return cmp.RefOfValuesStatement(a, b)
 	default:
 		// this should never happen
 		return false
@@ -6521,6 +7799,19 @@ func (cmp *Comparator) SliceOfTxAccessMode(a, b []TxAccessMode) bool {
 	return true
 }
 
+// SliceOfExpr does deep equals between the two objects.
+func (cmp *Comparator) SliceOfExpr(a, b []Expr) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := 0; i < len(a); i++ {
+		if !cmp.Expr(a[i], b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
 // SliceOfRefOfWhen does deep equals between the two objects.
 func (cmp *Comparator) SliceOfRefOfWhen(a, b []*When) bool {
 	if len(a) != len(b) {
@@ -6543,6 +7834,7 @@ func (cmp *Comparator) RefOfColumnTypeOptions(a, b *ColumnTypeOptions) bool {
 		return false
 	}
 	return a.Autoincrement == b.Autoincrement &&
+		a.DefaultLiteral == b.DefaultLiteral &&
 		a.Collate == b.Collate &&
 		cmp.RefOfBool(a.Null, b.Null) &&
 		cmp.Expr(a.Default, b.Default) &&
@@ -6559,6 +7851,17 @@ func (cmp *Comparator) RefOfColumnTypeOptions(a, b *ColumnTypeOptions) bool {
 		cmp.RefOfLiteral(a.SRID, b.SRID)
 }
 
+// RefOfInt does deep equals between the two objects.
+func (cmp *Comparator) RefOfInt(a, b *int) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
 // ColumnCharset does deep equals between the two objects.
 func (cmp *Comparator) ColumnCharset(a, b ColumnCharset) bool {
 	return a.Name == b.Name &&
@@ -6572,6 +7875,58 @@ func (cmp *Comparator) SliceOfString(a, b []string) bool {
 	}
 	for i := 0; i < len(a); i++ {
 		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// SliceOfCompoundStatement does deep equals between the two objects.
+func (cmp *Comparator) SliceOfCompoundStatement(a, b []CompoundStatement) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := 0; i < len(a); i++ {
+		if !cmp.CompoundStatement(a[i], b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// SliceOfRefOfProcParameter does deep equals between the two objects.
+func (cmp *Comparator) SliceOfRefOfProcParameter(a, b []*ProcParameter) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := 0; i < len(a); i++ {
+		if !cmp.RefOfProcParameter(a[i], b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// SliceOfHandlerCondition does deep equals between the two objects.
+func (cmp *Comparator) SliceOfHandlerCondition(a, b []HandlerCondition) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := 0; i < len(a); i++ {
+		if !cmp.HandlerCondition(a[i], b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// SliceOfTableExpr does deep equals between the two objects.
+func (cmp *Comparator) SliceOfTableExpr(a, b []TableExpr) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := 0; i < len(a); i++ {
+		if !cmp.TableExpr(a[i], b[i]) {
 			return false
 		}
 	}
@@ -6614,6 +7969,19 @@ func (cmp *Comparator) RefOfIdentifierCS(a, b *IdentifierCS) bool {
 	return a.v == b.v
 }
 
+// SliceOfRefOfElseIfBlock does deep equals between the two objects.
+func (cmp *Comparator) SliceOfRefOfElseIfBlock(a, b []*ElseIfBlock) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := 0; i < len(a); i++ {
+		if !cmp.RefOfElseIfBlock(a[i], b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
 // SliceOfRefOfIndexColumn does deep equals between the two objects.
 func (cmp *Comparator) SliceOfRefOfIndexColumn(a, b []*IndexColumn) bool {
 	if len(a) != len(b) {
@@ -6634,19 +8002,6 @@ func (cmp *Comparator) SliceOfRefOfIndexOption(a, b []*IndexOption) bool {
 	}
 	for i := 0; i < len(a); i++ {
 		if !cmp.RefOfIndexOption(a[i], b[i]) {
-			return false
-		}
-	}
-	return true
-}
-
-// SliceOfExpr does deep equals between the two objects.
-func (cmp *Comparator) SliceOfExpr(a, b []Expr) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := 0; i < len(a); i++ {
-		if !cmp.Expr(a[i], b[i]) {
 			return false
 		}
 	}
@@ -6757,17 +8112,6 @@ func (cmp *Comparator) Comments(a, b Comments) bool {
 	return true
 }
 
-// RefOfInt does deep equals between the two objects.
-func (cmp *Comparator) RefOfInt(a, b *int) bool {
-	if a == b {
-		return true
-	}
-	if a == nil || b == nil {
-		return false
-	}
-	return *a == *b
-}
-
 // SliceOfRefOfPartitionDefinition does deep equals between the two objects.
 func (cmp *Comparator) SliceOfRefOfPartitionDefinition(a, b []*PartitionDefinition) bool {
 	if len(a) != len(b) {
@@ -6805,13 +8149,26 @@ func (cmp *Comparator) RefOfRootNode(a, b *RootNode) bool {
 	return cmp.SQLNode(a.SQLNode, b.SQLNode)
 }
 
-// SliceOfTableExpr does deep equals between the two objects.
-func (cmp *Comparator) SliceOfTableExpr(a, b []TableExpr) bool {
+// SliceOfSelectExpr does deep equals between the two objects.
+func (cmp *Comparator) SliceOfSelectExpr(a, b []SelectExpr) bool {
 	if len(a) != len(b) {
 		return false
 	}
 	for i := 0; i < len(a); i++ {
-		if !cmp.TableExpr(a[i], b[i]) {
+		if !cmp.SelectExpr(a[i], b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// SliceOfRefOfSignalSet does deep equals between the two objects.
+func (cmp *Comparator) SliceOfRefOfSignalSet(a, b []*SignalSet) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := 0; i < len(a); i++ {
+		if !cmp.RefOfSignalSet(a[i], b[i]) {
 			return false
 		}
 	}
@@ -6937,7 +8294,7 @@ func (cmp *Comparator) RefOfIndexColumn(a, b *IndexColumn) bool {
 		return false
 	}
 	return cmp.IdentifierCI(a.Column, b.Column) &&
-		cmp.RefOfLiteral(a.Length, b.Length) &&
+		cmp.RefOfInt(a.Length, b.Length) &&
 		cmp.Expr(a.Expression, b.Expression) &&
 		a.Direction == b.Direction
 }

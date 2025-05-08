@@ -21,7 +21,6 @@ limitations under the License.
 package hack
 
 import (
-	"reflect"
 	"unsafe"
 )
 
@@ -31,16 +30,11 @@ func String(b []byte) (s string) {
 	if len(b) == 0 {
 		return ""
 	}
-	return *(*string)(unsafe.Pointer(&b))
+	return unsafe.String(&b[0], len(b))
 }
 
 // StringBytes returns the underlying bytes for a string. Modifying this byte slice
 // will lead to undefined behavior.
 func StringBytes(s string) []byte {
-	var b []byte
-	hdr := (*reflect.SliceHeader)(unsafe.Pointer(&b))
-	hdr.Data = (*reflect.StringHeader)(unsafe.Pointer(&s)).Data
-	hdr.Cap = len(s)
-	hdr.Len = len(s)
-	return b
+	return unsafe.Slice(unsafe.StringData(s), len(s))
 }

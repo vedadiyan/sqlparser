@@ -19,7 +19,7 @@ package sqltypes
 import (
 	"crypto/sha256"
 	"fmt"
-	"reflect"
+	"slices"
 
 	"google.golang.org/protobuf/proto"
 
@@ -31,6 +31,7 @@ type Result struct {
 	Fields              []*querypb.Field `json:"fields"`
 	RowsAffected        uint64           `json:"rows_affected"`
 	InsertID            uint64           `json:"insert_id"`
+	InsertIDChanged     bool             `json:"insert_id_changed"`
 	Rows                []Row            `json:"rows"`
 	SessionStateChanges string           `json:"session_state_changes"`
 	StatusFlags         uint16           `json:"status_flags"`
@@ -63,14 +64,23 @@ type ResultStream interface {
 	Recv() (*Result, error)
 }
 
+// MultiResultStream is an interface for receiving multiple Results. It is used for
+// RPC interfaces that send multiple responses.
+type MultiResultStream interface {
+	// Recv returns the next result on the stream.
+	// It will return io.EOF if the stream ended.
+	// The boolean tells if a new result has started.
+	Recv() (res *Result, newRes bool, err error)
+}
+
 // Repair fixes the type info in the rows
 // to conform to the supplied field types.
 func (result *Result) Repair(fields []*querypb.Field) {
 	// Usage of j is intentional.
 	for j, f := range fields {
 		for _, r := range result.Rows {
-			if r[j].typ != Null {
-				r[j].typ = f.Type
+			if r[j].Type() != Null {
+				r[j].typ = uint16(f.Type)
 			}
 		}
 	}
@@ -92,6 +102,7 @@ func (result *Result) Copy() *Result {
 	out := &Result{
 		RowsAffected:        result.RowsAffected,
 		InsertID:            result.InsertID,
+		InsertIDChanged:     result.InsertIDChanged,
 		SessionStateChanges: result.SessionStateChanges,
 		StatusFlags:         result.StatusFlags,
 		Info:                result.Info,
@@ -99,7 +110,7 @@ func (result *Result) Copy() *Result {
 	if result.Fields != nil {
 		out.Fields = make([]*querypb.Field, len(result.Fields))
 		for i, f := range result.Fields {
-			out.Fields[i] = proto.Clone(f).(*querypb.Field)
+			out.Fields[i] = f.CloneVT()
 		}
 	}
 	if result.Rows != nil {
@@ -116,6 +127,7 @@ func (result *Result) ShallowCopy() *Result {
 	return &Result{
 		Fields:              result.Fields,
 		InsertID:            result.InsertID,
+		InsertIDChanged:     result.InsertIDChanged,
 		RowsAffected:        result.RowsAffected,
 		Info:                result.Info,
 		SessionStateChanges: result.SessionStateChanges,
@@ -129,6 +141,7 @@ func (result *Result) Metadata() *Result {
 	return &Result{
 		Fields:              result.Fields,
 		InsertID:            result.InsertID,
+		InsertIDChanged:     result.InsertIDChanged,
 		RowsAffected:        result.RowsAffected,
 		Info:                result.Info,
 		SessionStateChanges: result.SessionStateChanges,
@@ -153,6 +166,7 @@ func (result *Result) Truncate(l int) *Result {
 
 	out := &Result{
 		InsertID:            result.InsertID,
+		InsertIDChanged:     result.InsertIDChanged,
 		RowsAffected:        result.RowsAffected,
 		Info:                result.Info,
 		SessionStateChanges: result.SessionStateChanges,
@@ -198,17 +212,20 @@ func (result *Result) Equal(other *Result) bool {
 	return FieldsEqual(result.Fields, other.Fields) &&
 		result.RowsAffected == other.RowsAffected &&
 		result.InsertID == other.InsertID &&
-		reflect.DeepEqual(result.Rows, other.Rows)
+		result.InsertIDChanged == other.InsertIDChanged &&
+		slices.EqualFunc(result.Rows, other.Rows, func(a, b Row) bool {
+			return RowEqual(a, b)
+		})
 }
 
 // ResultsEqual compares two arrays of Result.
 // reflect.DeepEqual shouldn't be used because of the protos.
-func ResultsEqual(r1, r2 []Result) bool {
+func ResultsEqual(r1, r2 []*Result) bool {
 	if len(r1) != len(r2) {
 		return false
 	}
 	for i, r := range r1 {
-		if !r.Equal(&r2[i]) {
+		if !r.Equal(r2[i]) {
 			return false
 		}
 	}
@@ -265,7 +282,7 @@ func saveRowsAnalysis(r Result, allRows map[string]int, totalRows *int, incremen
 
 func hashCodeForRow(val []Value) string {
 	h := sha256.New()
-	h.Write([]byte(fmt.Sprintf("%v", val)))
+	fmt.Fprintf(h, "%v", val)
 
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
@@ -322,15 +339,13 @@ func (result *Result) StripMetadata(incl querypb.ExecuteOptions_IncludedFields) 
 // to another result.Note currently it doesn't handle cases like
 // if two results have different fields.We will enhance this function.
 func (result *Result) AppendResult(src *Result) {
-	if src.RowsAffected == 0 && len(src.Rows) == 0 && len(src.Fields) == 0 {
-		return
-	}
-	if result.Fields == nil {
-		result.Fields = src.Fields
-	}
 	result.RowsAffected += src.RowsAffected
-	if src.InsertID != 0 {
+	if src.InsertIDUpdated() {
 		result.InsertID = src.InsertID
+		result.InsertIDChanged = true
+	}
+	if len(result.Fields) == 0 {
+		result.Fields = src.Fields
 	}
 	result.Rows = append(result.Rows, src.Rows...)
 }
@@ -348,4 +363,8 @@ func (result *Result) IsMoreResultsExists() bool {
 // IsInTransaction returns true if the status flag has SERVER_STATUS_IN_TRANS set
 func (result *Result) IsInTransaction() bool {
 	return result.StatusFlags&ServerStatusInTrans == ServerStatusInTrans
+}
+
+func (result *Result) InsertIDUpdated() bool {
+	return result.InsertIDChanged || result.InsertID > 0
 }

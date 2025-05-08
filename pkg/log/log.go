@@ -22,6 +22,10 @@ limitations under the License.
 package log
 
 import (
+	"fmt"
+	"strconv"
+	"sync/atomic"
+
 	"github.com/golang/glog"
 	"github.com/spf13/pflag"
 )
@@ -78,5 +82,123 @@ var (
 // calls this function, or call this function directly before parsing
 // command-line arguments.
 func RegisterFlags(fs *pflag.FlagSet) {
-	fs.Uint64Var(&glog.MaxSize, "log_rotate_max_size", glog.MaxSize, "size in bytes at which logs are rotated (glog.MaxSize)")
+	flagVal := logRotateMaxSize{
+		val: fmt.Sprintf("%d", atomic.LoadUint64(&glog.MaxSize)),
+	}
+	fs.Var(&flagVal, "log_rotate_max_size", "size in bytes at which logs are rotated (glog.MaxSize)")
+}
+
+// logRotateMaxSize implements pflag.Value and is used to
+// try and provide thread-safe access to glog.MaxSize.
+type logRotateMaxSize struct {
+	val string
+}
+
+func (lrms *logRotateMaxSize) Set(s string) error {
+	maxSize, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		return err
+	}
+	atomic.StoreUint64(&glog.MaxSize, maxSize)
+	lrms.val = s
+	return nil
+}
+
+func (lrms *logRotateMaxSize) String() string {
+	return lrms.val
+}
+
+func (lrms *logRotateMaxSize) Type() string {
+	return "uint64"
+}
+
+type PrefixedLogger struct {
+	prefix string
+}
+
+func NewPrefixedLogger(prefix string) *PrefixedLogger {
+	return &PrefixedLogger{prefix: prefix + ": "}
+}
+
+func (pl *PrefixedLogger) V(level glog.Level) glog.Verbose {
+	return V(level)
+}
+
+func (pl *PrefixedLogger) Flush() {
+	Flush()
+}
+
+func (pl *PrefixedLogger) Info(args ...any) {
+	args = append([]interface{}{pl.prefix}, args...)
+	Info(args...)
+}
+
+func (pl *PrefixedLogger) Infof(format string, args ...any) {
+	args = append([]interface{}{pl.prefix}, args...)
+	Infof("%s"+format, args...)
+}
+
+func (pl *PrefixedLogger) InfoDepth(depth int, args ...any) {
+	args = append([]interface{}{pl.prefix}, args...)
+	InfoDepth(depth, args...)
+}
+
+func (pl *PrefixedLogger) Warning(args ...any) {
+	args = append([]interface{}{pl.prefix}, args...)
+	Warning(args...)
+}
+
+func (pl *PrefixedLogger) Warningf(format string, args ...any) {
+	args = append([]interface{}{pl.prefix}, args...)
+	Warningf("%s"+format, args...)
+}
+
+func (pl *PrefixedLogger) WarningDepth(depth int, args ...any) {
+	args = append([]interface{}{pl.prefix}, args...)
+	WarningDepth(depth, args...)
+}
+
+func (pl *PrefixedLogger) Error(args ...any) {
+	args = append([]interface{}{pl.prefix}, args...)
+	Error(args...)
+}
+
+func (pl *PrefixedLogger) Errorf(format string, args ...any) {
+	args = append([]interface{}{pl.prefix}, args...)
+	Errorf("%s"+format, args...)
+}
+
+func (pl *PrefixedLogger) ErrorDepth(depth int, args ...any) {
+	args = append([]interface{}{pl.prefix}, args...)
+	ErrorDepth(depth, args...)
+}
+
+func (pl *PrefixedLogger) Exit(args ...any) {
+	args = append([]interface{}{pl.prefix}, args...)
+	Exit(args...)
+}
+
+func (pl *PrefixedLogger) Exitf(format string, args ...any) {
+	args = append([]interface{}{pl.prefix}, args...)
+	Exitf("%s"+format, args...)
+}
+
+func (pl *PrefixedLogger) ExitDepth(depth int, args ...any) {
+	args = append([]interface{}{pl.prefix}, args...)
+	ExitDepth(depth, args...)
+}
+
+func (pl *PrefixedLogger) Fatal(args ...any) {
+	args = append([]interface{}{pl.prefix}, args...)
+	Fatal(args...)
+}
+
+func (pl *PrefixedLogger) Fatalf(format string, args ...any) {
+	args = append([]interface{}{pl.prefix}, args...)
+	Fatalf("%s"+format, args...)
+}
+
+func (pl *PrefixedLogger) FatalDepth(depth int, args ...any) {
+	args = append([]interface{}{pl.prefix}, args...)
+	FatalDepth(depth, args...)
 }
