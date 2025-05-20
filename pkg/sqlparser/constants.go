@@ -696,6 +696,8 @@ const (
 	NaturalJoinType
 	NaturalLeftJoinType
 	NaturalRightJoinType
+	HashJoinType
+	ParallelJoinType
 )
 
 // Constants for Enum Type - ComparisonExprOperator
