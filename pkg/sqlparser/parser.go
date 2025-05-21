@@ -1,5 +1,6 @@
 /*
 Copyright 2019 The Vitess Authors.
+Copyright 2025 Pouya Vedadiyan.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -403,4 +404,9 @@ func NewTestParser() *Parser {
 		truncateUILen:  512,
 		truncateErrLen: 0,
 	}
+}
+
+func Parse(sql string) (Statement, error) {
+	parser := Parser{}
+	return parser.Parse(sql)
 }
