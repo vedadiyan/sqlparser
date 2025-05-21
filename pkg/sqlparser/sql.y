@@ -16,7 +16,7 @@ limitations under the License.
 %{
 package sqlparser
 
-import "vitess.io/vitess/go/ptr"
+import "github.com/vedadiyan/sqlparser/pkg/ptr"
 
 func setParseTrees(yylex yyLexer, stmts []Statement) {
   if len(stmts) > 1 && stmts[len(stmts)-1] == nil {
@@ -5564,14 +5564,6 @@ inner_join:
   {
     $$ = NormalJoinType
   }
-| HASH JOIN
-  {
-    $$ = HashJoinType
-  } 
-| PARALLEL JOIN
-  {
-    $$ = ParallelJoinType
-  }          
 
 straight_join:
   STRAIGHT_JOIN
