@@ -29,7 +29,7 @@ import (
 )
 
 func main() {
-    sql := "SELECT * FROM users JOIN orders ON users.id = orders.user_id USING HASH"
+    sql := "SELECT * FROM users PARALLEL HASH JOIN orders ON users.id = orders.user_id"
     
     stmt, err := sqlparser.Parse(sql)
     if err != nil {
