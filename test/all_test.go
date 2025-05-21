@@ -7,7 +7,7 @@ import (
 )
 
 func TestAll(t *testing.T) {
-	query := "SELECT * FROM X PARALLEL INNER JOIN Y ON X.id = Y.id"
+	query := "SELECT HASH('MD5', 'abc') FROM X PARALLEL INNER JOIN Y ON X.id = Y.id"
 
 	parser := sqlparser.Parser{}
 	parsed, err := parser.Parse(query)

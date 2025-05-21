@@ -281,7 +281,7 @@ func markBindVariable(yylex yyLexer, bvar string) {
 %token <str> VALUES LAST_INSERT_ID
 %token <str> NEXT VALUE SHARE MODE
 %token <str> SQL_NO_CACHE SQL_CACHE SQL_CALC_FOUND_ROWS SQL_SMALL_RESULT SQL_BIG_RESULT HIGH_PRIORITY
-%left <str> JOIN STRAIGHT_JOIN LEFT RIGHT INNER OUTER CROSS NATURAL USE FORCE
+%left <str> JOIN STRAIGHT_JOIN LEFT RIGHT INNER OUTER CROSS HASH NATURAL USE FORCE
 %left <str> ON USING INPLACE COPY INSTANT ALGORITHM NONE SHARED EXCLUSIVE
 %left <str> SUBQUERY_AS_EXPR
 %left <str> '(' ',' ')'
@@ -451,7 +451,7 @@ func markBindVariable(yylex yyLexer, bvar string) {
 %token <str> FIXED DYNAMIC COMPRESSED REDUNDANT COMPACT ROW_FORMAT STATS_AUTO_RECALC STATS_PERSISTENT STATS_SAMPLE_PAGES STORAGE MEMORY DISK
 
 // Partitions tokens
-%token <str> PARTITIONS LINEAR RANGE LIST SUBPARTITION SUBPARTITIONS HASH
+%token <str> PARTITIONS LINEAR RANGE LIST SUBPARTITION SUBPARTITIONS HASHFUNC
 
 %type <partitionByType> range_or_list
 %type <integer> partitions_opt algorithm_opt subpartitions_opt partition_max_rows partition_min_rows
@@ -3816,7 +3816,7 @@ partitions_options_opt:
     }
 
 partitions_options_beginning:
-  linear_opt HASH '(' expression ')'
+  linear_opt HASHFUNC '(' expression ')'
     {
     $$ = &PartitionOption {
         IsLinear: $1,
@@ -3852,7 +3852,7 @@ subpartition_opt:
   {
     $$ = nil
   }
-| SUBPARTITION BY linear_opt HASH '(' expression ')' subpartitions_opt
+| SUBPARTITION BY linear_opt HASHFUNC '(' expression ')' subpartitions_opt
   {
     $$ = &SubPartition {
       IsLinear: $3,
@@ -8967,6 +8967,7 @@ non_reserved_keyword:
 | GTID_SUBSET %prec FUNCTION_CALL_NON_KEYWORD
 | GTID_SUBTRACT %prec FUNCTION_CALL_NON_KEYWORD
 | HANDLER
+| HASHFUNC
 | HEADER
 | HISTOGRAM
 | HISTORY
