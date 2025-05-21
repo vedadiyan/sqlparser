@@ -25,7 +25,7 @@ package main
 
 import (
     "fmt"
-    "github.com/vedadiyan/sqlparser"
+    "github.com/vedadiyan/sqlparser/pkg/sqlparser"
 )
 
 func main() {
