@@ -1,5 +1,6 @@
 /*
 Copyright 2019 The Vitess Authors.
+Copyright 2025 Pouya Vedadiyan.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -697,7 +698,14 @@ const (
 	NaturalLeftJoinType
 	NaturalRightJoinType
 	HashJoinType
-	ParallelJoinType
+	ParallelNormalJoinType
+	ParallelHashJoinType
+	LeftHashJoinType
+	RightHashJoinType
+	ParallelLeftJoinType
+	ParallelLeftHashJoinType
+	ParallelRightJoinType
+	ParallelRightHashJoinType
 )
 
 // Constants for Enum Type - ComparisonExprOperator

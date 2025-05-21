@@ -1,5 +1,6 @@
 /*
 Copyright 2019 The Vitess Authors.
+Copyright 2025 Pouya Vedadiyan.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 You may obtain a copy of the License at
@@ -50,22 +51,6 @@ func markBindVariable(yylex yyLexer, bvar string) {
 
 %}
 
-%struct {
-  empty         struct{}
-  LengthScaleOption LengthScaleOption
-  tableName     TableName
-  identifierCS    IdentifierCS
-  str           string
-  strs          []string
-  vindexParam   VindexParam
-  jsonObjectParam *JSONObjectParam
-  identifierCI      IdentifierCI
-  joinCondition *JoinCondition
-  databaseOption DatabaseOption
-  columnType    *ColumnType
-  columnCharset ColumnCharset
-}
-
 %union {
   statement       Statement
   statements      []Statement
@@ -79,6 +64,19 @@ func markBindVariable(yylex yyLexer, bvar string) {
   optVal          Expr
   constraintInfo  ConstraintInfo
   alterOption     AlterOption
+  empty         struct{}
+  LengthScaleOption LengthScaleOption
+  tableName     TableName
+  identifierCS    IdentifierCS
+  str           string
+  strs          []string
+  vindexParam   VindexParam
+  jsonObjectParam *JSONObjectParam
+  identifierCI      IdentifierCI
+  joinCondition *JoinCondition
+  databaseOption DatabaseOption
+  columnType    *ColumnType
+  columnCharset ColumnCharset
 
   ins           *Insert
   colName       *ColName
@@ -5556,14 +5554,39 @@ inner_join:
   {
     $$ = NormalJoinType
   }
+| PARALLEL JOIN
+  {
+    $$ = ParallelNormalJoinType
+  }    
 | INNER JOIN
   {
     $$ = NormalJoinType
   }
+| INNER HASH JOIN
+  {
+    $$ = HashJoinType
+  }  
+| PARALLEL INNER JOIN
+  {
+    $$ = ParallelNormalJoinType
+  } 
+| PARALLEL INNER HASH JOIN
+  {
+    $$ = ParallelHashJoinType
+  }    
 | CROSS JOIN
   {
     $$ = NormalJoinType
   }
+| HASH JOIN
+  {
+    $$ = HashJoinType
+  }  
+| PARALLEL HASH JOIN
+  {
+    $$ = ParallelHashJoinType
+  }    
+  
 
 straight_join:
   STRAIGHT_JOIN
@@ -5576,18 +5599,66 @@ outer_join:
   {
     $$ = LeftJoinType
   }
+| PARALLEL LEFT JOIN
+  {
+    $$ = ParallelLeftJoinType
+  }  
+| LEFT HASH JOIN
+  {
+    $$ = LeftHashJoinType
+  }
+| PARALLEL LEFT HASH JOIN
+  {
+    $$ = ParallelLeftHashJoinType
+  }  
 | LEFT OUTER JOIN
   {
     $$ = LeftJoinType
   }
+| PARALLEL LEFT OUTER JOIN
+  {
+    $$ = ParallelLeftJoinType
+  }  
+| LEFT OUTER HASH JOIN
+  {
+    $$ = LeftHashJoinType
+  }  
+| PARALLEL LEFT OUTER HASH JOIN
+  {
+    $$ = ParallelLeftHashJoinType
+  }    
 | RIGHT JOIN
   {
     $$ = RightJoinType
   }
+| PARALLEL RIGHT JOIN
+  {
+    $$ = ParallelRightJoinType
+  }  
+| RIGHT HASH JOIN
+  {
+    $$ = RightHashJoinType
+  } 
+| PARALLEL RIGHT HASH JOIN
+  {
+    $$ = ParallelRightHashJoinType
+  }    
 | RIGHT OUTER JOIN
   {
     $$ = RightJoinType
   }
+| PARALLEL RIGHT OUTER JOIN
+  {
+    $$ = ParallelRightJoinType
+  }  
+| RIGHT OUTER HASH JOIN
+  {
+    $$ = RightHashJoinType
+  }  
+| PARALLEL RIGHT OUTER HASH JOIN
+  {
+    $$ = ParallelRightHashJoinType
+  }    
 
 natural_join:
  NATURAL JOIN
@@ -8649,6 +8720,7 @@ reserved_keyword:
 | GROUP
 | GROUPING
 | GROUPS
+| HASH
 | HAVING
 | HIGH_PRIORITY
 | IF
@@ -8699,6 +8771,7 @@ reserved_keyword:
 | OUTER
 | OUTFILE
 | OVER
+| PARALLEL
 | PARTITION
 | PERCENT_RANK
 | PRIMARY
@@ -8894,7 +8967,6 @@ non_reserved_keyword:
 | GTID_SUBSET %prec FUNCTION_CALL_NON_KEYWORD
 | GTID_SUBTRACT %prec FUNCTION_CALL_NON_KEYWORD
 | HANDLER
-| HASH
 | HEADER
 | HISTOGRAM
 | HISTORY
@@ -9011,7 +9083,6 @@ non_reserved_keyword:
 | OTHERS
 | OVERWRITE
 | PACK_KEYS
-| PARALLEL
 | PARSER
 | PARTIAL
 | PARTITIONING
