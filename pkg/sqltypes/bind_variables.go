@@ -17,17 +17,17 @@ limitations under the License.
 package sqltypes
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"google.golang.org/protobuf/proto"
 
 	querypb "github.com/vedadiyan/sqlparser/pkg/query"
 )
 
-type DecimalFloat float64
+type DecimalString string
 
 var (
 	// BvSchemaName is bind variable to be sent down to vttablet for schema name.
@@ -40,9 +40,16 @@ var (
 	NullBindVariable = &querypb.BindVariable{Type: querypb.Type_NULL_TYPE}
 )
 
+func TupleToProto(v []Value) *querypb.Value {
+	return &querypb.Value{
+		Type:  querypb.Type_TUPLE,
+		Value: encodeTuple(v),
+	}
+}
+
 // ValueToProto converts Value to a *querypb.Value.
 func ValueToProto(v Value) *querypb.Value {
-	return &querypb.Value{Type: v.typ, Value: v.val}
+	return &querypb.Value{Type: v.Type(), Value: v.val}
 }
 
 // ProtoToValue converts a *querypb.Value to a Value.
@@ -120,9 +127,8 @@ func Float64BindVariable(v float64) *querypb.BindVariable {
 	return ValueBindVariable(NewFloat64(v))
 }
 
-func DecimalBindVariable(v DecimalFloat) *querypb.BindVariable {
-	f := strconv.FormatFloat(float64(v), 'f', -1, 64)
-	return ValueBindVariable(NewDecimal(f))
+func DecimalBindVariable(v DecimalString) *querypb.BindVariable {
+	return ValueBindVariable(NewDecimal(string(v)))
 }
 
 // StringBindVariable converts a string to a bind var.
@@ -137,7 +143,7 @@ func BytesBindVariable(v []byte) *querypb.BindVariable {
 
 // ValueBindVariable converts a Value to a bind var.
 func ValueBindVariable(v Value) *querypb.BindVariable {
-	return &querypb.BindVariable{Type: v.typ, Value: v.val}
+	return &querypb.BindVariable{Type: v.Type(), Value: v.val}
 }
 
 // BuildBindVariable builds a *querypb.BindVariable from a valid input type.
@@ -170,7 +176,7 @@ func BuildBindVariable(v any) (*querypb.BindVariable, error) {
 		return Int64BindVariable(v), nil
 	case uint64:
 		return Uint64BindVariable(v), nil
-	case DecimalFloat:
+	case DecimalString:
 		return DecimalBindVariable(v), nil
 	case float64:
 		return Float64BindVariable(v), nil
@@ -412,7 +418,7 @@ func FormatBindVariables(bindVariables map[string]*querypb.BindVariable, full, a
 	}
 
 	if asJSON {
-		var buf bytes.Buffer
+		var buf strings.Builder
 		buf.WriteString("{")
 		first := true
 		for k, v := range out {

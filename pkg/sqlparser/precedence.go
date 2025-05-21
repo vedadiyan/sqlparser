@@ -38,7 +38,6 @@ const (
 	P14
 	P15
 	P16
-	P17
 )
 
 // precedenceFor returns the precedence of an expression.
@@ -57,12 +56,7 @@ func precedenceFor(in Expr) Precendence {
 		return P13
 	case *BetweenExpr:
 		return P12
-	case *ComparisonExpr:
-		switch node.Operator {
-		case EqualOp, NotEqualOp, GreaterThanOp, GreaterEqualOp, LessThanOp, LessEqualOp, LikeOp, InOp, RegexpOp, NullSafeEqualOp:
-			return P11
-		}
-	case *IsExpr:
+	case *ComparisonExpr, *IsExpr, *MemberOfExpr:
 		return P11
 	case *BinaryExpr:
 		switch node.Operator {
@@ -83,13 +77,9 @@ func precedenceFor(in Expr) Precendence {
 		switch node.Operator {
 		case UPlusOp, UMinusOp:
 			return P4
-		case BangOp:
+		default:
 			return P3
 		}
-	case *IntervalExpr:
-		return P1
-	case *ExtractedSubquery:
-		return precedenceFor(node.alternative)
 	}
 
 	return Syntactic

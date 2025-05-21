@@ -1,5 +1,6 @@
 /*
 Copyright 2019 The Vitess Authors.
+Copyright 2025 Pouya Vedadiyan.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,19 +18,18 @@ limitations under the License.
 package sqlparser
 
 import (
+	"errors"
 	"fmt"
-	"io"
 	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/vedadiyan/sqlparser/pkg/log"
+	"github.com/vedadiyan/sqlparser/pkg/mysql/config"
 	"github.com/vedadiyan/sqlparser/pkg/vterrors"
 
 	vtrpcpb "github.com/vedadiyan/sqlparser/pkg/vtrpc"
 )
-
-var versionFlagSync sync.Once
 
 // parserPool is a pool for parser objects.
 var parserPool = sync.Pool{
@@ -40,9 +40,6 @@ var parserPool = sync.Pool{
 
 // zeroParser is a zero-initialized parser to help reinitialize the parser for pooling.
 var zeroParser yyParserImpl
-
-// mySQLParserVersion is the version of MySQL that the parser would emulate
-var mySQLParserVersion string
 
 // yyParsePooled is a wrapper around yyParse that pools the parser objects. There isn't a
 // particularly good reason to use yyParse directly, since it immediately discards its parser.
@@ -78,12 +75,12 @@ func yyParsePooled(yylex yyLexer) int {
 // bind variables that were found in the original SQL query. If a DDL statement
 // is partially parsed but still contains a syntax error, the
 // error is ignored and the DDL is returned anyway.
-func Parse2(sql string) (Statement, BindVars, error) {
-	tokenizer := NewStringTokenizer(sql)
-	if yyParsePooled(tokenizer) != 0 {
+func (p *Parser) Parse2(sql string) (Statement, BindVars, error) {
+	tokenizer := p.NewStringTokenizer(sql)
+	if yyParsePooled(tokenizer) != 0 || tokenizer.LastError != nil {
 		if tokenizer.partialDDL != nil {
 			if typ, val := tokenizer.Scan(); typ != 0 {
-				return nil, nil, fmt.Errorf("extra characters encountered after end of DDL: '%s'", string(val))
+				return nil, nil, fmt.Errorf("extra characters encountered after end of DDL: '%s'", val)
 			}
 			log.Warningf("ignoring error parsing DDL '%s': %v", sql, tokenizer.LastError)
 			switch x := tokenizer.partialDDL.(type) {
@@ -92,41 +89,68 @@ func Parse2(sql string) (Statement, BindVars, error) {
 			case DDLStatement:
 				x.SetFullyParsed(false)
 			}
-			tokenizer.ParseTree = tokenizer.partialDDL
-			return tokenizer.ParseTree, tokenizer.BindVars, nil
+			tokenizer.ParseTrees = []Statement{tokenizer.partialDDL}
+			return tokenizer.ParseTrees[0], tokenizer.BindVars, nil
 		}
 		return nil, nil, vterrors.New(vtrpcpb.Code_INVALID_ARGUMENT, tokenizer.LastError.Error())
 	}
-	if tokenizer.ParseTree == nil {
-		return nil, nil, ErrEmpty
+	err := checkParseTreesError(tokenizer)
+	if err != nil {
+		return nil, nil, err
 	}
-	return tokenizer.ParseTree, tokenizer.BindVars, nil
+	return tokenizer.ParseTrees[0], tokenizer.BindVars, nil
 }
 
-// func checkParserVersionFlag() {
-// 	if flag.Parsed() {
-// 		versionFlagSync.Do(func() {
-// 			convVersion, err := convertMySQLVersionToCommentVersion(servenv.MySQLServerVersion())
-// 			if err != nil {
-// 				log.Fatalf("unable to parse mysql version: %v", err)
-// 			}
-// 			mySQLParserVersion = convVersion
-// 		})
-// 	}
-// }
-
-// SetParserVersion sets the mysql parser version
-func SetParserVersion(version string) {
-	mySQLParserVersion = version
+// ParseMultiple parses the SQL in full and returns a list of Statements, which
+// are the AST representation of the query. This command is meant to parse more than
+// one SQL statement at a time.
+func (p *Parser) ParseMultiple(sql string) ([]Statement, error) {
+	tokenizer := p.NewStringTokenizer(sql)
+	if yyParsePooled(tokenizer) != 0 {
+		return nil, tokenizer.LastError
+	}
+	return tokenizer.ParseTrees, nil
 }
 
-// GetParserVersion returns the version of the mysql parser
-func GetParserVersion() string {
-	return mySQLParserVersion
+// ParseMultipleIgnoreEmpty parses multiple statements, but ignores empty statements.
+func (p *Parser) ParseMultipleIgnoreEmpty(sql string) ([]Statement, error) {
+	stmts, err := p.ParseMultiple(sql)
+	if err != nil {
+		return nil, err
+	}
+	newStmts := make([]Statement, 0)
+	for _, stmt := range stmts {
+		// Only keep non-empty non comment only statements.
+		if _, isCommentOnly := stmt.(*CommentOnly); stmt != nil && !isCommentOnly {
+			newStmts = append(newStmts, stmt)
+		}
+	}
+	return newStmts, nil
 }
 
-// convertMySQLVersionToCommentVersion converts the MySQL version into comment version format.
-func convertMySQLVersionToCommentVersion(version string) (string, error) {
+// parse parses the SQL in full and returns a list of Statements, which
+// are the AST representation of the query. This command is meant to parse more than
+// one SQL statement at a time.
+func parse(tokenizer *Tokenizer) ([]Statement, error) {
+	if yyParsePooled(tokenizer) != 0 {
+		return nil, tokenizer.LastError
+	}
+	return tokenizer.ParseTrees, nil
+}
+
+// checkParseTreesError checks for errors that need to be sent based on the parseTrees generated.
+func checkParseTreesError(tokenizer *Tokenizer) error {
+	if len(tokenizer.ParseTrees) > 1 {
+		return ErrMultipleStatements
+	}
+	if len(tokenizer.ParseTrees) == 0 || tokenizer.ParseTrees[0] == nil {
+		return ErrEmpty
+	}
+	return nil
+}
+
+// ConvertMySQLVersionToCommentVersion converts the MySQL version into comment version format.
+func ConvertMySQLVersionToCommentVersion(version string) (string, error) {
 	var res = make([]int, 3)
 	idx := 0
 	val := ""
@@ -164,87 +188,45 @@ func convertMySQLVersionToCommentVersion(version string) (string, error) {
 }
 
 // ParseExpr parses an expression and transforms it to an AST
-func ParseExpr(sql string) (Expr, error) {
-	stmt, err := Parse("select " + sql)
+func (p *Parser) ParseExpr(sql string) (Expr, error) {
+	stmt, err := p.Parse("select " + sql)
 	if err != nil {
 		return nil, err
 	}
-	aliasedExpr := stmt.(*Select).SelectExprs[0].(*AliasedExpr)
+	aliasedExpr := stmt.(*Select).SelectExprs.Exprs[0].(*AliasedExpr)
 	return aliasedExpr.Expr, err
 }
 
 // Parse behaves like Parse2 but does not return a set of bind variables
-func Parse(sql string) (Statement, error) {
-	stmt, _, err := Parse2(sql)
+func (p *Parser) Parse(sql string) (Statement, error) {
+	stmt, _, err := p.Parse2(sql)
 	return stmt, err
 }
 
 // ParseStrictDDL is the same as Parse except it errors on
 // partially parsed DDL statements.
-func ParseStrictDDL(sql string) (Statement, error) {
-	tokenizer := NewStringTokenizer(sql)
+func (p *Parser) ParseStrictDDL(sql string) (Statement, error) {
+	tokenizer := p.NewStringTokenizer(sql)
 	if yyParsePooled(tokenizer) != 0 {
 		return nil, tokenizer.LastError
 	}
-	if tokenizer.ParseTree == nil {
-		return nil, ErrEmpty
+	err := checkParseTreesError(tokenizer)
+	if err != nil {
+		return nil, err
 	}
-	return tokenizer.ParseTree, nil
-}
-
-// ParseTokenizer is a raw interface to parse from the given tokenizer.
-// This does not used pooled parsers, and should not be used in general.
-func ParseTokenizer(tokenizer *Tokenizer) int {
-	return yyParse(tokenizer)
-}
-
-// ParseNext parses a single SQL statement from the tokenizer
-// returning a Statement which is the AST representation of the query.
-// The tokenizer will always read up to the end of the statement, allowing for
-// the next call to ParseNext to parse any subsequent SQL statements. When
-// there are no more statements to parse, a error of io.EOF is returned.
-func ParseNext(tokenizer *Tokenizer) (Statement, error) {
-	return parseNext(tokenizer, false)
-}
-
-// ParseNextStrictDDL is the same as ParseNext except it errors on
-// partially parsed DDL statements.
-func ParseNextStrictDDL(tokenizer *Tokenizer) (Statement, error) {
-	return parseNext(tokenizer, true)
-}
-
-func parseNext(tokenizer *Tokenizer, strict bool) (Statement, error) {
-	if tokenizer.cur() == ';' {
-		tokenizer.skip(1)
-		tokenizer.skipBlank()
-	}
-	if tokenizer.cur() == eofChar {
-		return nil, io.EOF
-	}
-
-	tokenizer.reset()
-	tokenizer.multi = true
-	if yyParsePooled(tokenizer) != 0 {
-		if tokenizer.partialDDL != nil && !strict {
-			tokenizer.ParseTree = tokenizer.partialDDL
-			return tokenizer.ParseTree, nil
-		}
-		return nil, tokenizer.LastError
-	}
-	_, isCommentOnly := tokenizer.ParseTree.(*CommentOnly)
-	if tokenizer.ParseTree == nil || isCommentOnly {
-		return ParseNext(tokenizer)
-	}
-	return tokenizer.ParseTree, nil
+	return tokenizer.ParseTrees[0], nil
 }
 
 // ErrEmpty is a sentinel error returned when parsing empty statements.
 var ErrEmpty = vterrors.NewErrorf(vtrpcpb.Code_INVALID_ARGUMENT, vterrors.EmptyQuery, "Query was empty")
 
-// SplitStatement returns the first sql statement up to either a ; or EOF
+// ErrMultipleStatements is a sentinel error returned when we parsed multiple statements when we were expecting one.
+var ErrMultipleStatements = vterrors.NewErrorf(vtrpcpb.Code_INVALID_ARGUMENT, vterrors.SyntaxError, "Expected a single statement")
+
+// SplitStatement returns the first sql statement up to either a ';' or EOF
 // and the remainder from the given buffer
-func SplitStatement(blob string) (string, string, error) {
-	tokenizer := NewStringTokenizer(blob)
+func (p *Parser) SplitStatement(blob string) (string, string, error) {
+	tokenizer := p.NewStringTokenizer(blob)
 	tkn := 0
 	for {
 		tkn, _ = tokenizer.Scan()
@@ -261,9 +243,41 @@ func SplitStatement(blob string) (string, string, error) {
 	return blob, "", nil
 }
 
-// SplitStatementToPieces split raw sql statement that may have multi sql pieces to sql pieces
-// returns the sql pieces blob contains; or error if sql cannot be parsed
-func SplitStatementToPieces(blob string) (pieces []string, err error) {
+var validCreatePrefixes = [][]int{
+	// These are the tokens (in order) for valid "create procedure" forms.
+	{CREATE, PROCEDURE},
+	{CREATE, DEFINER, '=', CURRENT_USER, PROCEDURE},
+	{CREATE, DEFINER, '=', CURRENT_USER, '(', ')', PROCEDURE},
+	{CREATE, DEFINER, '=', STRING, PROCEDURE},
+	{CREATE, DEFINER, '=', STRING, AT_ID, PROCEDURE},
+	{CREATE, DEFINER, '=', ID, PROCEDURE},
+	{CREATE, DEFINER, '=', ID, AT_ID, PROCEDURE},
+}
+
+// matchesCreateProcedurePrefix checks if the given token sequence
+// is a create procedure statement or not.
+func matchesCreateProcedurePrefix(tokens []int) bool {
+	// Check each candidate sequence.
+	for _, pattern := range validCreatePrefixes {
+		if len(tokens) >= len(pattern) {
+			match := true
+			for i, tok := range pattern {
+				if tokens[i] != tok {
+					match = false
+					break
+				}
+			}
+			if match {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// SplitStatementToPieces splits raw sql statement that may have multi sql pieces to sql pieces
+// returns the sql pieces blob contains; or error if sql cannot be parsed.
+func (p *Parser) SplitStatementToPieces(blob string) (pieces []string, err error) {
 	// fast path: the vast majority of SQL statements do not have semicolons in them
 	if blob == "" {
 		return nil, nil
@@ -271,26 +285,36 @@ func SplitStatementToPieces(blob string) (pieces []string, err error) {
 	switch strings.IndexByte(blob, ';') {
 	case -1: // if there is no semicolon, return blob as a whole
 		return []string{blob}, nil
-	case len(blob) - 1: // if there's a single semicolon and it's the last character, return blob without it
+	case len(blob) - 1: // if there's a single semicolon, and it's the last character, return blob without it
 		return []string{blob[:len(blob)-1]}, nil
 	}
 
 	pieces = make([]string, 0, 16)
-	tokenizer := NewStringTokenizer(blob)
+	tokenizer := p.NewStringTokenizer(blob)
 
 	tkn := 0
 	var stmt string
 	stmtBegin := 0
 	emptyStatement := true
+	var startTokens []int // holds the first tokens of the current statement
+
 loop:
 	for {
 		tkn, _ = tokenizer.Scan()
 		switch tkn {
 		case ';':
+			// Potential end of the statement.
 			stmt = blob[stmtBegin : tokenizer.Pos-1]
+			// If it's a create procedure statement and is incomplete, skip appending.
+			if matchesCreateProcedurePrefix(startTokens) && p.IsStatementIncomplete(stmt) {
+				continue
+			}
 			if !emptyStatement {
 				pieces = append(pieces, stmt)
+				// We can now reset the variables for the next statement.
+				// It starts off as an empty statement.
 				emptyStatement = true
+				startTokens = startTokens[:0] // clear token slice
 			}
 			stmtBegin = tokenizer.Pos
 		case 0, eofChar:
@@ -302,7 +326,16 @@ loop:
 				}
 			}
 			break loop
+		case COMMENT:
+			// Skip comments entirely without altering the token list.
+			continue
 		default:
+			// If we're at the very start of a statement, or we haven't filled out enough tokens
+			// for our valid prefix match (assuming our longest valid sequence is 10 tokens),
+			// accumulate the token.
+			if len(startTokens) < 10 {
+				startTokens = append(startTokens, tkn)
+			}
 			emptyStatement = false
 		}
 	}
@@ -311,6 +344,69 @@ loop:
 	return
 }
 
-func IsMySQL80AndAbove() bool {
-	return mySQLParserVersion >= "80000"
+// IsStatementIncomplete returns true if the statement is incomplete.
+func (p *Parser) IsStatementIncomplete(stmt string) bool {
+	tkn := p.NewStringTokenizer(stmt)
+	yyParsePooled(tkn)
+	if tkn.LastError != nil {
+		var pe PositionedErr
+		isPe := errors.As(tkn.LastError, &pe)
+		if isPe && pe.Pos == len(stmt)+1 {
+			// The error is at the end of the statement, which means it is incomplete.
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Parser) IsMySQL80AndAbove() bool {
+	return p.version >= "80000"
+}
+
+func (p *Parser) SetTruncateErrLen(l int) {
+	p.truncateErrLen = l
+}
+
+type Options struct {
+	MySQLServerVersion string
+	TruncateUILen      int
+	TruncateErrLen     int
+}
+
+type Parser struct {
+	version        string
+	truncateUILen  int
+	truncateErrLen int
+}
+
+func New(opts Options) (*Parser, error) {
+	if opts.MySQLServerVersion == "" {
+		opts.MySQLServerVersion = config.DefaultMySQLVersion
+	}
+	convVersion, err := ConvertMySQLVersionToCommentVersion(opts.MySQLServerVersion)
+	if err != nil {
+		return nil, err
+	}
+	return &Parser{
+		version:        convVersion,
+		truncateUILen:  opts.TruncateUILen,
+		truncateErrLen: opts.TruncateErrLen,
+	}, nil
+}
+
+func NewTestParser() *Parser {
+	convVersion, err := ConvertMySQLVersionToCommentVersion(config.DefaultMySQLVersion)
+	if err != nil {
+		panic(err)
+	}
+	return &Parser{
+		version:        convVersion,
+		truncateUILen:  512,
+		truncateErrLen: 0,
+	}
+}
+
+func Parse(sql string) (Statement, error) {
+	parser := Parser{}
+	return parser.Parse(sql)
 }

@@ -57,6 +57,8 @@ var (
 	off     = "0"
 	utf8mb4 = "'utf8mb4'"
 
+	ForeignKeyChecks = "foreign_key_checks"
+
 	Autocommit                  = SystemVariable{Name: "autocommit", IsBoolean: true, Default: on}
 	Charset                     = SystemVariable{Name: "charset", Default: utf8mb4, IdentifierAsString: true}
 	ClientFoundRows             = SystemVariable{Name: "client_found_rows", IsBoolean: true, Default: off}
@@ -73,7 +75,10 @@ var (
 	QueryTimeout                = SystemVariable{Name: "query_timeout"}
 
 	// Online DDL
-	DDLStrategy    = SystemVariable{Name: "ddl_strategy", IdentifierAsString: true}
+	DDLStrategy      = SystemVariable{Name: "ddl_strategy", IdentifierAsString: true}
+	MigrationContext = SystemVariable{Name: "migration_context", IdentifierAsString: true}
+
+	// Version
 	Version        = SystemVariable{Name: "version"}
 	VersionComment = SystemVariable{Name: "version_comment"}
 
@@ -81,6 +86,9 @@ var (
 	ReadAfterWriteGTID    = SystemVariable{Name: "read_after_write_gtid"}
 	ReadAfterWriteTimeOut = SystemVariable{Name: "read_after_write_timeout"}
 	SessionTrackGTIDs     = SystemVariable{Name: "session_track_gtids", IdentifierAsString: true}
+
+	// Filled in from VitessAware, ReadOnly, IgnoreThese, NotSupported, UseReservedConn, CheckAndIgnore
+	AllSystemVariables map[string]SystemVariable
 
 	VitessAware = []SystemVariable{
 		Autocommit,
@@ -95,6 +103,7 @@ var (
 		Charset,
 		Names,
 		SessionUUID,
+		MigrationContext,
 		SessionEnableSystemSettings,
 		ReadAfterWriteGTID,
 		ReadAfterWriteTimeOut,
@@ -182,9 +191,10 @@ var (
 		{Name: "end_markers_in_json", IsBoolean: true, SupportSetVar: true},
 		{Name: "eq_range_index_dive_limit", SupportSetVar: true},
 		{Name: "explicit_defaults_for_timestamp"},
-		{Name: "foreign_key_checks", IsBoolean: true, SupportSetVar: true},
+		{Name: ForeignKeyChecks, IsBoolean: true, SupportSetVar: true},
 		{Name: "group_concat_max_len", SupportSetVar: true},
 		{Name: "information_schema_stats_expiry"},
+		{Name: "innodb_lock_wait_timeout"},
 		{Name: "max_heap_table_size", SupportSetVar: true},
 		{Name: "max_seeks_for_key", SupportSetVar: true},
 		{Name: "max_tmp_tables"},
@@ -240,7 +250,6 @@ var (
 		{Name: "collation_server"},
 		{Name: "completion_type"},
 		{Name: "div_precision_increment", SupportSetVar: true},
-		{Name: "innodb_lock_wait_timeout"},
 		{Name: "interactive_timeout"},
 		{Name: "lc_time_names"},
 		{Name: "lock_wait_timeout", SupportSetVar: true},
@@ -262,6 +271,31 @@ var (
 		{Name: "version_tokens_session"},
 	}
 )
+
+func init() {
+	AllSystemVariables = make(map[string]SystemVariable)
+	for _, set := range [][]SystemVariable{
+		VitessAware,
+		ReadOnly,
+		IgnoreThese,
+		NotSupported,
+		UseReservedConn,
+		CheckAndIgnore,
+	} {
+		for _, v := range set {
+			AllSystemVariables[v.Name] = v
+		}
+	}
+}
+
+func SupportsSetVar(name string) bool {
+	sys, ok := AllSystemVariables[name]
+	if !ok {
+		return false
+	}
+
+	return sys.SupportSetVar
+}
 
 // GetInterestingVariables is used to return all the variables that may be listed in a SHOW VARIABLES command.
 func GetInterestingVariables() []string {

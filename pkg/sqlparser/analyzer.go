@@ -44,6 +44,7 @@ const (
 	StmtShow
 	StmtUse
 	StmtOther
+	StmtAnalyze
 	StmtUnknown
 	StmtComment
 	StmtPriv
@@ -56,9 +57,12 @@ const (
 	StmtUnlockTables
 	StmtFlush
 	StmtCallProc
-	StmtRevert
-	StmtShowMigrationLogs
+	StmtMigration
 	StmtCommentOnly
+	StmtPrepare
+	StmtExecute
+	StmtDeallocate
+	StmtKill
 )
 
 // ASTToStatementType returns a StatementType from an AST stmt
@@ -78,14 +82,14 @@ func ASTToStatementType(stmt Statement) StatementType {
 		return StmtShow
 	case DDLStatement, DBDDLStatement, *AlterVschema:
 		return StmtDDL
-	case *RevertMigration:
-		return StmtRevert
-	case *ShowMigrationLogs:
-		return StmtShowMigrationLogs
+	case *AlterMigration, *RevertMigration, *ShowMigrationLogs:
+		return StmtMigration
 	case *Use:
 		return StmtUse
-	case *OtherRead, *OtherAdmin, *Load:
+	case *OtherAdmin, *Load:
 		return StmtOther
+	case *Analyze:
+		return StmtAnalyze
 	case Explain, *VExplainStmt:
 		return StmtExplain
 	case *Begin:
@@ -114,6 +118,14 @@ func ASTToStatementType(stmt Statement) StatementType {
 		return StmtVStream
 	case *CommentOnly:
 		return StmtCommentOnly
+	case *PrepareStmt:
+		return StmtPrepare
+	case *ExecuteStmt:
+		return StmtExecute
+	case *DeallocateStmt:
+		return StmtDeallocate
+	case *Kill:
+		return StmtKill
 	default:
 		return StmtUnknown
 	}
@@ -122,7 +134,7 @@ func ASTToStatementType(stmt Statement) StatementType {
 // CanNormalize takes Statement and returns if the statement can be normalized.
 func CanNormalize(stmt Statement) bool {
 	switch stmt.(type) {
-	case *Select, *Union, *Insert, *Update, *Delete, *Set, *CallProc, *Stream: // TODO: we could merge this logic into ASTrewriter
+	case *Select, *Union, *Insert, *Update, *Delete, *Set, *CallProc, *Stream, *VExplainStmt: // TODO: we could merge this logic into ASTrewriter
 		return true
 	}
 	return false
@@ -130,22 +142,11 @@ func CanNormalize(stmt Statement) bool {
 
 // CachePlan takes Statement and returns true if the query plan should be cached
 func CachePlan(stmt Statement) bool {
-	var comments *ParsedComments
-	switch stmt := stmt.(type) {
-	case *Select:
-		comments = stmt.Comments
-	case *Insert:
-		comments = stmt.Comments
-	case *Update:
-		comments = stmt.Comments
-	case *Delete:
-		comments = stmt.Comments
-	case *Union, *Stream:
-		return true
-	default:
+	_, supportSetVar := stmt.(SupportOptimizerHint)
+	if !supportSetVar {
 		return false
 	}
-	return !comments.Directives().IsSet(DirectiveSkipQueryPlanCache)
+	return !checkDirective(stmt, DirectiveSkipQueryPlanCache)
 }
 
 // MustRewriteAST takes Statement and returns true if RewriteAST must run on it for correct execution irrespective of user flags.
@@ -190,7 +191,7 @@ func Preview(sql string) StatementType {
 	case "vstream":
 		return StmtVStream
 	case "revert":
-		return StmtRevert
+		return StmtMigration
 	case "insert":
 		return StmtInsert
 	case "replace":
@@ -233,14 +234,18 @@ func Preview(sql string) StatementType {
 		return StmtUse
 	case "describe", "desc", "explain":
 		return StmtExplain
-	case "analyze", "repair", "optimize":
+	case "repair", "optimize":
 		return StmtOther
+	case "analyze":
+		return StmtAnalyze
 	case "grant", "revoke":
 		return StmtPriv
 	case "release":
 		return StmtRelease
 	case "rollback":
 		return StmtSRollback
+	case "kill":
+		return StmtKill
 	}
 	return StmtUnknown
 }
@@ -253,8 +258,8 @@ func (s StatementType) String() string {
 		return "STREAM"
 	case StmtVStream:
 		return "VSTREAM"
-	case StmtRevert:
-		return "REVERT"
+	case StmtMigration:
+		return "MIGRATION"
 	case StmtInsert:
 		return "INSERT"
 	case StmtReplace:
@@ -279,6 +284,8 @@ func (s StatementType) String() string {
 		return "USE"
 	case StmtOther:
 		return "OTHER"
+	case StmtAnalyze:
+		return "ANALYZE"
 	case StmtPriv:
 		return "PRIV"
 	case StmtExplain:
@@ -299,6 +306,14 @@ func (s StatementType) String() string {
 		return "CALL_PROC"
 	case StmtCommentOnly:
 		return "COMMENT_ONLY"
+	case StmtPrepare:
+		return "PREPARE"
+	case StmtExecute:
+		return "EXECUTE"
+	case StmtDeallocate:
+		return "DEALLOCATE_PREPARE"
+	case StmtKill:
+		return "KILL"
 	default:
 		return "UNKNOWN"
 	}
@@ -325,8 +340,8 @@ func IsDMLStatement(stmt Statement) bool {
 
 // TableFromStatement returns the qualified table name for the query.
 // This works only for select statements.
-func TableFromStatement(sql string) (TableName, error) {
-	stmt, err := Parse(sql)
+func (p *Parser) TableFromStatement(sql string) (TableName, error) {
+	stmt, err := p.Parse(sql)
 	if err != nil {
 		return TableName{}, err
 	}
@@ -368,7 +383,7 @@ func IsColName(node Expr) bool {
 // NULL is not considered to be a value.
 func IsValue(node Expr) bool {
 	switch v := node.(type) {
-	case Argument:
+	case *Argument:
 		return true
 	case *Literal:
 		switch v.Type {
@@ -406,11 +421,11 @@ func IsSimpleTuple(node Expr) bool {
 	return false
 }
 
-// IsLockingFunc returns true for all functions that are used to work with mysql advisory locks
-func IsLockingFunc(node Expr) bool {
-	switch node.(type) {
-	case *LockingFunc:
+func SupportsOptimizerHint(stmt StatementType) bool {
+	switch stmt {
+	case StmtSelect, StmtInsert, StmtUpdate, StmtDelete, StmtStream, StmtVStream:
 		return true
+	default:
+		return false
 	}
-	return false
 }

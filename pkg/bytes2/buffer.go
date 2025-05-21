@@ -28,11 +28,6 @@ type Buffer struct {
 	bytes []byte
 }
 
-// NewBuffer is equivalent to bytes.NewBuffer.
-func NewBuffer(b []byte) *Buffer {
-	return &Buffer{bytes: b}
-}
-
 // Write is equivalent to bytes.Buffer.Write.
 func (buf *Buffer) Write(b []byte) (int, error) {
 	buf.bytes = append(buf.bytes, b...)
@@ -65,7 +60,7 @@ func (buf *Buffer) String() string {
 // is _not_ allocated, so modifying this buffer after calling StringUnsafe will lead
 // to undefined behavior.
 func (buf *Buffer) StringUnsafe() string {
-	return *(*string)(unsafe.Pointer(&buf.bytes))
+	return unsafe.String(unsafe.SliceData(buf.bytes), len(buf.bytes))
 }
 
 // Reset is equivalent to bytes.Buffer.Reset.

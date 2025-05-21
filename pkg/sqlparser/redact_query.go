@@ -19,19 +19,19 @@ package sqlparser
 import querypb "github.com/vedadiyan/sqlparser/pkg/query"
 
 // RedactSQLQuery returns a sql string with the params stripped out for display
-func RedactSQLQuery(sql string) (string, error) {
+func (p *Parser) RedactSQLQuery(sql string) (string, error) {
 	bv := map[string]*querypb.BindVariable{}
 	sqlStripped, comments := SplitMarginComments(sql)
 
-	stmt, reservedVars, err := Parse2(sqlStripped)
+	stmt, reservedVars, err := p.Parse2(sqlStripped)
 	if err != nil {
 		return "", err
 	}
 
-	err = Normalize(stmt, NewReservedVars("redacted", reservedVars), bv)
+	out, err := Normalize(stmt, NewReservedVars("redacted", reservedVars), bv, true, "ks", 0, "", map[string]string{}, nil, nil)
 	if err != nil {
 		return "", err
 	}
 
-	return comments.Leading + String(stmt) + comments.Trailing, nil
+	return comments.Leading + String(out.AST) + comments.Trailing, nil
 }

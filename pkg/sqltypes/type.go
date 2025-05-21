@@ -71,6 +71,12 @@ func IsFloat(t querypb.Type) bool {
 	return int(t)&flagIsFloat == flagIsFloat
 }
 
+// IsDecimal returns true is querypb.Type is a decimal.
+// If you have a Value object, use its member function.
+func IsDecimal(t querypb.Type) bool {
+	return t == Decimal
+}
+
 // IsQuoted returns true if querypb.Type is a quoted text or binary.
 // If you have a Value object, use its member function.
 func IsQuoted(t querypb.Type) bool {
@@ -81,6 +87,10 @@ func IsQuoted(t querypb.Type) bool {
 // If you have a Value object, use its member function.
 func IsText(t querypb.Type) bool {
 	return int(t)&flagIsText == flagIsText
+}
+
+func IsTextOrBinary(t querypb.Type) bool {
+	return int(t)&flagIsText == flagIsText || int(t)&flagIsBinary == flagIsBinary
 }
 
 // IsBinary returns true if querypb.Type is a binary.
@@ -94,14 +104,29 @@ func IsNumber(t querypb.Type) bool {
 	return IsIntegral(t) || IsFloat(t) || t == Decimal
 }
 
-// IsDate returns true if the type represents a date and/or time.
-func IsDate(t querypb.Type) bool {
+// IsDateOrTime returns true if the type represents a date and/or time.
+func IsDateOrTime(t querypb.Type) bool {
 	return t == Datetime || t == Date || t == Timestamp || t == Time
+}
+
+// IsDate returns true if the type has a date component
+func IsDate(t querypb.Type) bool {
+	return t == Datetime || t == Date || t == Timestamp
 }
 
 // IsNull returns true if the type is NULL type
 func IsNull(t querypb.Type) bool {
 	return t == Null
+}
+
+// IsEnum returns true if the type is Enum type
+func IsEnum(t querypb.Type) bool {
+	return t == Enum
+}
+
+// IsSet returns true if the type is Set type
+func IsSet(t querypb.Type) bool {
+	return t == Set
 }
 
 // Vitess data types. These are idiomatically named synonyms for the querypb.Type values.
@@ -125,6 +150,7 @@ func IsNull(t querypb.Type) bool {
 // switch statements for those who want to cover types
 // by their category.
 const (
+	Unknown    = querypb.Type(-1)
 	Null       = querypb.Type_NULL_TYPE
 	Int8       = querypb.Type_INT8
 	Uint8      = querypb.Type_UINT8
@@ -160,6 +186,7 @@ const (
 	HexVal     = querypb.Type_HEXVAL
 	Tuple      = querypb.Type_TUPLE
 	BitNum     = querypb.Type_BITNUM
+	Vector     = querypb.Type_VECTOR
 )
 
 // bit-shift the mysql flags by two byte so we
@@ -173,7 +200,7 @@ const (
 
 // If you add to this map, make sure you add a test case
 // in tabletserver/endtoend.
-var mysqlToType = map[int64]querypb.Type{
+var mysqlToType = map[byte]querypb.Type{
 	0:   Decimal,
 	1:   Int8,
 	2:   Int16,
@@ -193,6 +220,7 @@ var mysqlToType = map[int64]querypb.Type{
 	17:  Timestamp,
 	18:  Datetime,
 	19:  Time,
+	242: Vector,
 	245: TypeJSON,
 	246: Decimal,
 	247: Enum,
@@ -250,16 +278,12 @@ func modifyType(typ querypb.Type, flags int64) querypb.Type {
 		if flags&mysqlSet != 0 {
 			return Set
 		}
-	case Year:
-		if flags&mysqlBinary != 0 {
-			return VarBinary
-		}
 	}
 	return typ
 }
 
 // MySQLToType computes the vitess type from mysql type and flags.
-func MySQLToType(mysqlType, flags int64) (typ querypb.Type, err error) {
+func MySQLToType(mysqlType byte, flags int64) (typ querypb.Type, err error) {
 	result, ok := mysqlToType[mysqlType]
 	if !ok {
 		return 0, fmt.Errorf("unsupported type: %d", mysqlType)
@@ -287,7 +311,7 @@ func AreTypesEquivalent(mysqlTypeFromBinlog, mysqlTypeFromSchema querypb.Type) b
 
 // typeToMySQL is the reverse of mysqlToType.
 var typeToMySQL = map[querypb.Type]struct {
-	typ   int64
+	typ   byte
 	flags int64
 }{
 	Int8:      {typ: 1},
@@ -309,6 +333,7 @@ var typeToMySQL = map[querypb.Type]struct {
 	Datetime:  {typ: 12, flags: mysqlBinary},
 	Year:      {typ: 13, flags: mysqlUnsigned},
 	Bit:       {typ: 16, flags: mysqlUnsigned},
+	Vector:    {typ: 242},
 	TypeJSON:  {typ: 245},
 	Decimal:   {typ: 246},
 	Text:      {typ: 252},
@@ -326,7 +351,7 @@ var typeToMySQL = map[querypb.Type]struct {
 }
 
 // TypeToMySQL returns the equivalent mysql type and flag for a vitess type.
-func TypeToMySQL(typ querypb.Type) (mysqlType, flags int64) {
+func TypeToMySQL(typ querypb.Type) (mysqlType byte, flags int64) {
 	val := typeToMySQL[typ]
 	return val.typ, val.flags
 }

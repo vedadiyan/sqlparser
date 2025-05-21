@@ -17,33 +17,31 @@ limitations under the License.
 package sqlparser
 
 import (
-	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"regexp"
+	"io"
 	"strconv"
 	"strings"
 
-	"github.com/vedadiyan/sqlparser/pkg/vterrors"
-	vtrpcpb "github.com/vedadiyan/sqlparser/pkg/vtrpc"
-
 	"github.com/vedadiyan/sqlparser/pkg/log"
-
+	"github.com/vedadiyan/sqlparser/pkg/mysql/datetime"
+	"github.com/vedadiyan/sqlparser/pkg/mysql/decimal"
 	querypb "github.com/vedadiyan/sqlparser/pkg/query"
 	"github.com/vedadiyan/sqlparser/pkg/sqltypes"
+	"github.com/vedadiyan/sqlparser/pkg/vterrors"
+	vtrpcpb "github.com/vedadiyan/sqlparser/pkg/vtrpc"
 )
-
-// Generate all the AST helpers using the tooling in `go/tools`
-
-//go:generate go run ../../tools/asthelpergen/main  --in . --iface vitess.io/vitess/go/vt/sqlparser.SQLNode --clone_exclude "*ColName" --equals_custom "*ColName"
-//go:generate go run ../../tools/astfmtgen vitess.io/vitess/go/vt/sqlparser/...
 
 // Walk calls postVisit on every node.
 // If postVisit returns true, the underlying nodes
 // are also visited. If it returns an error, walking
 // is interrupted, and the error is returned.
-func Walk(visit Visit, nodes ...SQLNode) error {
+func Walk(visit Visit, first SQLNode, nodes ...SQLNode) error {
+	err := VisitSQLNode(first, visit)
+	if err != nil {
+		return err
+	}
 	for _, node := range nodes {
 		err := VisitSQLNode(node, visit)
 		if err != nil {
@@ -65,7 +63,7 @@ func Append(buf *strings.Builder, node SQLNode) {
 		Builder: buf,
 		fast:    true,
 	}
-	node.formatFast(tbuf)
+	node.FormatFast(tbuf)
 }
 
 // IndexColumn describes a column or expression in an index definition with optional length (for column)
@@ -73,7 +71,7 @@ type IndexColumn struct {
 	// Only one of Column or Expression can be specified
 	// Length is an optional field which is only applicable when Column is used
 	Column     IdentifierCI
-	Length     *Literal
+	Length     *int
 	Expression Expr
 	Direction  OrderDirection
 }
@@ -81,8 +79,8 @@ type IndexColumn struct {
 // LengthScaleOption is used for types that have an optional length
 // and scale
 type LengthScaleOption struct {
-	Length *Literal
-	Scale  *Literal
+	Length *int
+	Scale  *int
 }
 
 // IndexOption is used for trailing options for indexes: COMMENT, KEY_BLOCK_SIZE, USING, WITH PARSER
@@ -136,7 +134,7 @@ const (
 type MatchAction int
 
 const (
-	// DefaultAction indicates no action was explicitly specified.
+	// DefaultMatch indicates no action was explicitly specified.
 	DefaultMatch MatchAction = iota
 	Full
 	Partial
@@ -165,7 +163,7 @@ const (
 	FloatVal
 	HexNum
 	HexVal
-	BitVal
+	BitNum
 	DateVal
 	TimeVal
 	TimestampVal
@@ -295,6 +293,8 @@ func SQLTypeToQueryType(typeName string, unsigned bool) querypb.Type {
 		return sqltypes.Set
 	case JSON:
 		return sqltypes.TypeJSON
+	case VECTOR:
+		return sqltypes.Vector
 	case GEOMETRY:
 		return sqltypes.Geometry
 	case POINT:
@@ -359,6 +359,20 @@ func (node *ParsedComments) AddQueryHint(queryHint string) (Comments, error) {
 	return newComments, nil
 }
 
+// FkChecksStateString prints the foreign key checks state.
+func FkChecksStateString(state *bool) string {
+	if state == nil {
+		return ""
+	}
+	switch *state {
+	case false:
+		return "Off"
+	case true:
+		return "On"
+	}
+	return ""
+}
+
 // ParseParams parses the vindex parameter list, pulling out the special-case
 // "owner" parameter
 func (node *VindexSpec) ParseParams() (string, map[string]string) {
@@ -402,7 +416,7 @@ func (node *AliasedTableExpr) RemoveHints() *AliasedTableExpr {
 
 // TableName returns a TableName pointing to this table expr
 func (node *AliasedTableExpr) TableName() (TableName, error) {
-	if !node.As.IsEmpty() {
+	if node.As.NotEmpty() {
 		return TableName{Name: node.As}, nil
 	}
 
@@ -414,21 +428,26 @@ func (node *AliasedTableExpr) TableName() (TableName, error) {
 	return tableName, nil
 }
 
+// TableNameString returns a TableNameString pointing to this table expr
+func (node *AliasedTableExpr) TableNameString() string {
+	if node.As.NotEmpty() {
+		return node.As.String()
+	}
+
+	tableName, ok := node.Expr.(TableName)
+	if !ok {
+		panic(vterrors.VT13001("Derived table should have an alias. This should not be possible"))
+	}
+
+	return tableName.Name.String()
+}
+
 // IsEmpty returns true if TableName is nil or empty.
 func (node TableName) IsEmpty() bool {
 	// If Name is empty, Qualifier is also empty.
 	return node.Name.IsEmpty()
 }
-
-// ToViewName returns a TableName acceptable for use as a VIEW. VIEW names are
-// always lowercase, so ToViewName lowercasese the name. Databases are case-sensitive
-// so Qualifier is left untouched.
-func (node TableName) ToViewName() TableName {
-	return TableName{
-		Qualifier: node.Qualifier,
-		Name:      NewIdentifierCS(strings.ToLower(node.Name.v)),
-	}
-}
+func (node TableName) NonEmpty() bool { return !node.Name.IsEmpty() }
 
 // NewWhere creates a WHERE or HAVING clause out
 // of a Expr. If the expression is nil, it returns nil.
@@ -498,6 +517,70 @@ func (node *ComparisonExpr) IsImpossible() bool {
 	return false
 }
 
+func (op ComparisonExprOperator) Inverse() ComparisonExprOperator {
+	switch op {
+	case EqualOp:
+		return NotEqualOp
+	case LessThanOp:
+		return GreaterEqualOp
+	case GreaterThanOp:
+		return LessEqualOp
+	case LessEqualOp:
+		return GreaterThanOp
+	case GreaterEqualOp:
+		return LessThanOp
+	case NotEqualOp:
+		return EqualOp
+	case NullSafeEqualOp:
+		return NotEqualOp
+	case InOp:
+		return NotInOp
+	case NotInOp:
+		return InOp
+	case LikeOp:
+		return NotLikeOp
+	case NotLikeOp:
+		return LikeOp
+	case RegexpOp:
+		return NotRegexpOp
+	case NotRegexpOp:
+		return RegexpOp
+	}
+	panic("unreachable")
+}
+
+// SwitchSides returns the reversed comparison operator if applicable, along with a boolean indicating success.
+// For symmetric operators like '=', '!=', and '<=>', it returns the same operator and true.
+// For directional comparison operators ('<', '>', '<=', '>='), it returns the opposite operator and true.
+// For operators that imply directionality or cannot be logically reversed (such as 'IN', 'LIKE', 'REGEXP'),
+// it returns the original operator and false, indicating that switching sides is not valid.
+func (op ComparisonExprOperator) SwitchSides() (ComparisonExprOperator, bool) {
+	switch op {
+	case EqualOp, NotEqualOp, NullSafeEqualOp:
+		// These operators are symmetric, so switching sides has no effect
+		return op, true
+	case LessThanOp:
+		return GreaterThanOp, true
+	case GreaterThanOp:
+		return LessThanOp, true
+	case LessEqualOp:
+		return GreaterEqualOp, true
+	case GreaterEqualOp:
+		return LessEqualOp, true
+	default:
+		return op, false
+	}
+}
+
+func (op ComparisonExprOperator) IsCommutative() bool {
+	switch op {
+	case EqualOp, NotEqualOp, NullSafeEqualOp:
+		return true
+	default:
+		return false
+	}
+}
+
 // NewStrLiteral builds a new StrVal.
 func NewStrLiteral(in string) *Literal {
 	return &Literal{Type: StrVal, Val: in}
@@ -527,9 +610,9 @@ func NewHexLiteral(in string) *Literal {
 	return &Literal{Type: HexVal, Val: in}
 }
 
-// NewBitLiteral builds a new BitVal containing a bit literal.
+// NewBitLiteral builds a new BitNum containing a bit literal.
 func NewBitLiteral(in string) *Literal {
-	return &Literal{Type: BitVal, Val: in}
+	return &Literal{Type: BitNum, Val: in}
 }
 
 // NewDateLiteral builds a new Date.
@@ -548,8 +631,51 @@ func NewTimestampLiteral(in string) *Literal {
 }
 
 // NewArgument builds a new ValArg.
-func NewArgument(in string) Argument {
-	return Argument(in)
+func NewArgument(in string) *Argument {
+	return &Argument{Name: in, Type: sqltypes.Unknown}
+}
+
+func parseBindVariable(yylex yyLexer, bvar string) *Argument {
+	markBindVariable(yylex, bvar)
+	return NewArgument(bvar)
+}
+
+func setIntoIfPossible(lexer yyLexer, tblSubquery TableStatement, into *SelectInto) {
+	selStmt, ok := tblSubquery.(SelectStatement)
+	if !ok {
+		lexer.Error("VALUES does not support INTO")
+		return
+	}
+
+	selStmt.SetInto(into)
+}
+
+func setLockIfPossible(lexer yyLexer, tblSubquery TableStatement, lock Lock) {
+	selStmt, ok := tblSubquery.(SelectStatement)
+	if !ok {
+		lexer.Error("VALUES does not support LOCK")
+		return
+	}
+
+	selStmt.SetLock(lock)
+}
+
+func NewTypedArgument(in string, t sqltypes.Type) *Argument {
+	return &Argument{Name: in, Type: t}
+}
+
+func NewTypedArgumentFromLiteral(in string, lit *Literal) (*Argument, error) {
+	arg := &Argument{Name: in, Type: lit.SQLType()}
+	switch arg.Type {
+	case sqltypes.Decimal:
+		siz, scale := decimal.SizeAndScaleFromString(lit.Val)
+		arg.Scale = scale
+		arg.Size = siz
+	case sqltypes.Datetime, sqltypes.Time:
+		siz := datetime.SizeFromString(lit.Val)
+		arg.Size = siz
+	}
+	return arg, nil
 }
 
 // NewListArg builds a new ListArg.
@@ -572,36 +698,31 @@ func (node *Literal) HexDecode() ([]byte, error) {
 	return hex.DecodeString(node.Val)
 }
 
-// encodeHexOrBitValToMySQLQueryFormat encodes the hexval or bitval back into the query format
-// for passing on to MySQL as a bind var
-func (node *Literal) encodeHexOrBitValToMySQLQueryFormat() ([]byte, error) {
-	nb := node.Bytes()
-	if node.Type != HexVal && node.Type != BitVal {
-		return nb, vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "Literal value is not a HexVal")
+func (node *Literal) SQLType() sqltypes.Type {
+	switch node.Type {
+	case StrVal:
+		return sqltypes.VarChar
+	case IntVal:
+		return sqltypes.Int64
+	case FloatVal:
+		return sqltypes.Float64
+	case DecimalVal:
+		return sqltypes.Decimal
+	case HexNum:
+		return sqltypes.HexNum
+	case HexVal:
+		return sqltypes.HexVal
+	case BitNum:
+		return sqltypes.BitNum
+	case DateVal:
+		return sqltypes.Date
+	case TimeVal:
+		return sqltypes.Time
+	case TimestampVal:
+		return sqltypes.Datetime
+	default:
+		return -1
 	}
-
-	prefix := 'x'
-	regex := "^x'.*'$"
-	if node.Type == BitVal {
-		prefix = 'b'
-		regex = "^b'.*'$"
-	}
-	// Let's make this idempotent in case it's called more than once
-	match, err := regexp.Match(regex, nb)
-	if err != nil {
-		return nb, err
-	}
-	if match {
-		return nb, nil
-	}
-
-	var bb bytes.Buffer
-	bb.WriteByte(byte(prefix))
-	bb.WriteByte('\'')
-	bb.WriteString(string(nb))
-	bb.WriteByte('\'')
-	nb = bb.Bytes()
-	return nb, nil
 }
 
 // Equal returns true if the column names match.
@@ -611,31 +732,6 @@ func (node *ColName) Equal(c *ColName) bool {
 		return false
 	}
 	return node.Name.Equal(c.Name) && node.Qualifier == c.Qualifier
-}
-
-// Aggregates is a map of all aggregate functions.
-var Aggregates = map[string]bool{
-	"avg":          true,
-	"bit_and":      true,
-	"bit_or":       true,
-	"bit_xor":      true,
-	"count":        true,
-	"group_concat": true,
-	"max":          true,
-	"min":          true,
-	"std":          true,
-	"stddev_pop":   true,
-	"stddev_samp":  true,
-	"stddev":       true,
-	"sum":          true,
-	"var_pop":      true,
-	"var_samp":     true,
-	"variance":     true,
-}
-
-// IsAggregate returns true if the function is an aggregate.
-func (node *FuncExpr) IsAggregate() bool {
-	return Aggregates[node.Name.Lowered()]
 }
 
 // NewIdentifierCI makes a new IdentifierCI.
@@ -663,11 +759,148 @@ func NewColNameWithQualifier(identifier string, table TableName) *ColName {
 	}
 }
 
-// NewSelect is used to create a select statement
-func NewSelect(comments Comments, exprs SelectExprs, selectOptions []string, into *SelectInto, from TableExprs, where *Where, groupBy GroupBy, having *Where, windows NamedWindows) *Select {
-	var cache *bool
-	var distinct, straightJoinHint, sqlFoundRows bool
+// NewTableName makes a new TableName
+func NewTableName(name string) TableName {
+	return TableName{
+		Name: NewIdentifierCS(name),
+	}
+}
 
+// NewTableNameWithQualifier makes a new TableName with a qualifier
+func NewTableNameWithQualifier(name, qualifier string) TableName {
+	return TableName{
+		Name:      NewIdentifierCS(name),
+		Qualifier: NewIdentifierCS(qualifier),
+	}
+}
+
+// NewSubquery makes a new Subquery
+func NewSubquery(selectStatement TableStatement) *Subquery {
+	return &Subquery{Select: selectStatement}
+}
+
+// NewDerivedTable makes a new DerivedTable
+func NewDerivedTable(lateral bool, selectStatement TableStatement) *DerivedTable {
+	return &DerivedTable{
+		Lateral: lateral,
+		Select:  selectStatement,
+	}
+}
+
+// NewAliasedTableExpr makes a new AliasedTableExpr with an alias
+func NewAliasedTableExpr(simpleTableExpr SimpleTableExpr, alias string) *AliasedTableExpr {
+	return &AliasedTableExpr{
+		Expr: simpleTableExpr,
+		As:   NewIdentifierCS(alias),
+	}
+}
+
+// NewJoinTableExpr makes a new JoinTableExpr
+func NewJoinTableExpr(leftExpr TableExpr, join JoinType, rightExpr TableExpr, condition *JoinCondition) *JoinTableExpr {
+	return &JoinTableExpr{
+		LeftExpr:  leftExpr,
+		Join:      join,
+		RightExpr: rightExpr,
+		Condition: condition,
+	}
+}
+
+// NewJoinCondition makes a new JoinCondition
+func NewJoinCondition(on Expr, using Columns) *JoinCondition {
+	return &JoinCondition{
+		On:    on,
+		Using: using,
+	}
+}
+
+// NewAliasedExpr makes a new AliasedExpr
+func NewAliasedExpr(expr Expr, alias string) *AliasedExpr {
+	return &AliasedExpr{
+		Expr: expr,
+		As:   NewIdentifierCI(alias),
+	}
+}
+
+func (ae *AliasedExpr) SetAlias(alias string) {
+	ae.As = NewIdentifierCI(alias)
+}
+
+// NewOrder makes a new Order
+func NewOrder(expr Expr, direction OrderDirection) *Order {
+	return &Order{
+		Expr:      expr,
+		Direction: direction,
+	}
+}
+
+// NewNotExpr makes a new NotExpr
+func NewNotExpr(expr Expr) *NotExpr {
+	return &NotExpr{Expr: expr}
+}
+
+// NewComparisonExpr makes a new ComparisonExpr
+func NewComparisonExpr(operator ComparisonExprOperator, left, right, escape Expr) *ComparisonExpr {
+	return &ComparisonExpr{
+		Operator: operator,
+		Left:     left,
+		Right:    right,
+		Escape:   escape,
+	}
+}
+
+// NewExistsExpr makes a new ExistsExpr
+func NewExistsExpr(subquery *Subquery) *ExistsExpr {
+	return &ExistsExpr{Subquery: subquery}
+}
+
+// NewCaseExpr makes a new CaseExpr
+func NewCaseExpr(expr Expr, whens []*When, elseExpr Expr) *CaseExpr {
+	return &CaseExpr{
+		Expr:  expr,
+		Whens: whens,
+		Else:  elseExpr,
+	}
+}
+
+// NewLimit makes a new Limit
+func NewLimit(offset, rowCount int) *Limit {
+	return &Limit{
+		Offset: &Literal{
+			Type: IntVal,
+			Val:  fmt.Sprint(offset),
+		},
+		Rowcount: &Literal{
+			Type: IntVal,
+			Val:  fmt.Sprint(rowCount),
+		},
+	}
+}
+
+// NewLimitWithoutOffset makes a new Limit without an offset
+func NewLimitWithoutOffset(rowCount int) *Limit {
+	return &Limit{
+		Offset: nil,
+		Rowcount: &Literal{
+			Type: IntVal,
+			Val:  fmt.Sprint(rowCount),
+		},
+	}
+}
+
+// NewSelect is used to create a select statement
+func NewSelect(
+	comments Comments,
+	exprs *SelectExprs,
+	selectOptions []string,
+	into *SelectInto,
+	from TableExprs,
+	where *Where,
+	groupBy *GroupBy,
+	having *Where,
+	windows NamedWindows,
+) *Select {
+	var cache *bool
+	var distinct, highPriority, straightJoinHint, sqlSmallResult, sqlBigResult, SQLBufferResult, sqlFoundRows bool
 	for _, option := range selectOptions {
 		switch strings.ToLower(option) {
 		case DistinctStr:
@@ -678,8 +911,16 @@ func NewSelect(comments Comments, exprs SelectExprs, selectOptions []string, int
 		case SQLNoCacheStr:
 			truth := false
 			cache = &truth
+		case HighPriorityStr:
+			highPriority = true
 		case StraightJoinHint:
 			straightJoinHint = true
+		case SQLSmallResultStr:
+			sqlSmallResult = true
+		case SQLBigResultStr:
+			sqlBigResult = true
+		case SQLBufferResultStr:
+			SQLBufferResult = true
 		case SQLCalcFoundRowsStr:
 			sqlFoundRows = true
 		}
@@ -688,7 +929,11 @@ func NewSelect(comments Comments, exprs SelectExprs, selectOptions []string, int
 		Cache:            cache,
 		Comments:         comments.Parsed(),
 		Distinct:         distinct,
+		HighPriority:     highPriority,
 		StraightJoinHint: straightJoinHint,
+		SQLSmallResult:   sqlSmallResult,
+		SQLBigResult:     sqlBigResult,
+		SQLBufferResult:  SQLBufferResult,
 		SQLCalcFoundRows: sqlFoundRows,
 		SelectExprs:      exprs,
 		Into:             into,
@@ -765,12 +1010,17 @@ func createIdentifierCI(str string) IdentifierCI {
 
 // NewOffset creates an offset and returns it
 func NewOffset(v int, original Expr) *Offset {
-	return &Offset{V: v, Original: String(original)}
+	return &Offset{V: v, Original: original}
 }
 
 // IsEmpty returns true if the name is empty.
 func (node IdentifierCI) IsEmpty() bool {
 	return node.val == ""
+}
+
+// NonEmpty returns true if the name is not empty.
+func (node IdentifierCI) NotEmpty() bool {
+	return !node.IsEmpty()
 }
 
 // String returns the unescaped column name. It must
@@ -810,6 +1060,16 @@ func (node IdentifierCI) EqualString(str string) bool {
 	return node.Lowered() == strings.ToLower(str)
 }
 
+// EqualsAnyString returns true if any of these strings match
+func (node IdentifierCI) EqualsAnyString(str []string) bool {
+	for _, s := range str {
+		if node.EqualString(s) {
+			return true
+		}
+	}
+	return false
+}
+
 // MarshalJSON marshals into JSON.
 func (node IdentifierCI) MarshalJSON() ([]byte, error) {
 	return json.Marshal(node.val)
@@ -838,6 +1098,11 @@ func NewIdentifierCS(str string) IdentifierCS {
 // IsEmpty returns true if TabIdent is empty.
 func (node IdentifierCS) IsEmpty() bool {
 	return node.v == ""
+}
+
+// NonEmpty returns true if TabIdent is not empty.
+func (node IdentifierCS) NotEmpty() bool {
+	return !node.IsEmpty()
 }
 
 // String returns the unescaped table name. It must
@@ -888,8 +1153,12 @@ func containEscapableChars(s string, at AtCount) bool {
 }
 
 func formatID(buf *TrackedBuffer, original string, at AtCount) {
+	if buf.escape == escapeNoIdentifiers {
+		buf.WriteString(original)
+		return
+	}
 	_, isKeyword := keywordLookupTable.LookupString(original)
-	if buf.escape || isKeyword || containEscapableChars(original, at) {
+	if buf.escape == escapeAllIdentifiers || isKeyword || containEscapableChars(original, at) {
 		writeEscapedString(buf, original)
 	} else {
 		buf.WriteString(original)
@@ -907,6 +1176,11 @@ func writeEscapedString(buf *TrackedBuffer, original string) {
 	buf.WriteByte('`')
 }
 
+func CompliantString(in SQLNode) string {
+	s := String(in)
+	return compliantName(s)
+}
+
 func compliantName(in string) string {
 	var buf strings.Builder
 	for i, c := range in {
@@ -919,6 +1193,27 @@ func compliantName(in string) string {
 		buf.WriteRune(c)
 	}
 	return buf.String()
+}
+
+func (node *Select) AddSelectExprs(selectExprs *SelectExprs) {
+	if node.SelectExprs == nil {
+		node.SelectExprs = &SelectExprs{}
+	}
+	node.SelectExprs.Exprs = append(node.SelectExprs.Exprs, selectExprs.Exprs...)
+}
+
+func (node *Select) AddSelectExpr(expr SelectExpr) {
+	if node.SelectExprs == nil {
+		node.SelectExprs = &SelectExprs{}
+	}
+	node.SelectExprs.Exprs = append(node.SelectExprs.Exprs, expr)
+}
+
+func (node *Select) SetSelectExprs(exprs ...SelectExpr) {
+	if node.SelectExprs == nil {
+		node.SelectExprs = &SelectExprs{}
+	}
+	node.SelectExprs.Exprs = exprs
 }
 
 // AddOrder adds an order by element
@@ -946,6 +1241,11 @@ func (node *Select) GetLimit() *Limit {
 	return node.Limit
 }
 
+// GetLock returns the lock clause
+func (node *Select) GetLock() Lock {
+	return node.Lock
+}
+
 // SetLock sets the lock clause
 func (node *Select) SetLock(lock Lock) {
 	node.Lock = lock
@@ -966,22 +1266,33 @@ func (node *Select) MakeDistinct() {
 	node.Distinct = true
 }
 
+// IsDistinct implements the SelectStatement interface
+func (node *Select) IsDistinct() bool {
+	return node.Distinct
+}
+
 // GetColumnCount return SelectExprs count.
 func (node *Select) GetColumnCount() int {
-	return len(node.SelectExprs)
+	if node.SelectExprs == nil {
+		return 0
+	}
+	return len(node.SelectExprs.Exprs)
 }
 
 // GetColumns gets the columns
-func (node *Select) GetColumns() SelectExprs {
-	return node.SelectExprs
+func (node *Select) GetColumns() []SelectExpr {
+	if node.SelectExprs == nil {
+		return nil
+	}
+	return node.SelectExprs.Exprs
 }
 
-// SetComments implements the SelectStatement interface
+// SetComments implements the Commented interface
 func (node *Select) SetComments(comments Comments) {
 	node.Comments = comments.Parsed()
 }
 
-// GetComments implements the SelectStatement interface
+// GetParsedComments implements the Commented interface
 func (node *Select) GetParsedComments() *ParsedComments {
 	return node.Comments
 }
@@ -989,58 +1300,63 @@ func (node *Select) GetParsedComments() *ParsedComments {
 // AddWhere adds the boolean expression to the
 // WHERE clause as an AND condition.
 func (node *Select) AddWhere(expr Expr) {
-	if node.Where == nil {
-		node.Where = &Where{
-			Type: WhereClause,
-			Expr: expr,
-		}
-		return
-	}
-	exprs := SplitAndExpression(nil, node.Where.Expr)
-	node.Where.Expr = AndExpressions(append(exprs, expr)...)
+	node.Where = addPredicate(node.Where, expr)
 }
 
 // AddHaving adds the boolean expression to the
 // HAVING clause as an AND condition.
 func (node *Select) AddHaving(expr Expr) {
-	if node.Having == nil {
-		node.Having = &Where{
-			Type: HavingClause,
-			Expr: expr,
-		}
-		return
-	}
-	node.Having.Expr = &AndExpr{
-		Left:  node.Having.Expr,
-		Right: expr,
-	}
+	node.Having = addPredicate(node.Having, expr)
+	node.Having.Type = HavingClause
 }
 
 // AddGroupBy adds a grouping expression, unless it's already present
 func (node *Select) AddGroupBy(expr Expr) {
-	for _, gb := range node.GroupBy {
+	if node.GroupBy == nil {
+		node.GroupBy = &GroupBy{Exprs: []Expr{expr}}
+		return
+	}
+	for _, gb := range node.GroupBy.Exprs {
 		if Equals.Expr(gb, expr) {
 			// group by columns are sets - duplicates don't add anything, so we can just skip these
 			return
 		}
 	}
-	node.GroupBy = append(node.GroupBy, expr)
+	node.GroupBy.Exprs = append(node.GroupBy.Exprs, expr)
+}
+
+// GroupByExprs returns the group by expressions
+func (node *Select) GroupByExprs() []Expr {
+	if node.GroupBy == nil {
+		return nil
+	}
+	return node.GroupBy.Exprs
 }
 
 // AddWhere adds the boolean expression to the
 // WHERE clause as an AND condition.
 func (node *Update) AddWhere(expr Expr) {
-	if node.Where == nil {
-		node.Where = &Where{
+	node.Where = addPredicate(node.Where, expr)
+}
+
+func addPredicate(where *Where, pred Expr) *Where {
+	if where == nil {
+		return &Where{
 			Type: WhereClause,
-			Expr: expr,
+			Expr: pred,
 		}
-		return
 	}
-	node.Where.Expr = &AndExpr{
-		Left:  node.Where.Expr,
-		Right: expr,
+	where.Expr = &AndExpr{
+		Left:  where.Expr,
+		Right: pred,
 	}
+	return where
+}
+
+// AddWhere adds the boolean expression to the
+// WHERE clause as an AND condition.
+func (node *Delete) AddWhere(expr Expr) {
+	node.Where = addPredicate(node.Where, expr)
 }
 
 // AddOrder adds an order by element
@@ -1069,8 +1385,13 @@ func (node *Union) GetLimit() *Limit {
 }
 
 // GetColumns gets the columns
-func (node *Union) GetColumns() SelectExprs {
+func (node *Union) GetColumns() []SelectExpr {
 	return node.Left.GetColumns()
+}
+
+// GetLock returns the lock clause
+func (node *Union) GetLock() Lock {
+	return node.Lock
 }
 
 // SetLock sets the lock clause
@@ -1093,6 +1414,11 @@ func (node *Union) MakeDistinct() {
 	node.Distinct = true
 }
 
+// IsDistinct implements the SelectStatement interface
+func (node *Union) IsDistinct() bool {
+	return node.Distinct
+}
+
 // GetColumnCount implements the SelectStatement interface
 func (node *Union) GetColumnCount() int {
 	return node.Left.GetColumnCount()
@@ -1103,12 +1429,12 @@ func (node *Union) SetComments(comments Comments) {
 	node.Left.SetComments(comments)
 }
 
-// GetComments implements the SelectStatement interface
+// GetParsedComments implements the SelectStatement interface
 func (node *Union) GetParsedComments() *ParsedComments {
 	return node.Left.GetParsedComments()
 }
 
-func requiresParen(stmt SelectStatement) bool {
+func requiresParen(stmt TableStatement) bool {
 	switch node := stmt.(type) {
 	case *Union:
 		return len(node.OrderBy) != 0 || node.Lock != 0 || node.Into != nil || node.Limit != nil
@@ -1117,10 +1443,6 @@ func requiresParen(stmt SelectStatement) bool {
 	}
 
 	return false
-}
-
-func setLockInSelect(stmt SelectStatement, lock Lock) {
-	stmt.SetLock(lock)
 }
 
 // ToString returns the string associated with the DDLAction Enum
@@ -1136,6 +1458,8 @@ func (action DDLAction) ToString() string {
 		return RenameStr
 	case TruncateDDLAction:
 		return TruncateStr
+	case CreateProcedureAction:
+		return CreateProcStr
 	case CreateVindexDDLAction:
 		return CreateVindexStr
 	case DropVindexDDLAction:
@@ -1150,10 +1474,74 @@ func (action DDLAction) ToString() string {
 		return DropColVindexStr
 	case AddSequenceDDLAction:
 		return AddSequenceStr
+	case DropSequenceDDLAction:
+		return DropSequenceStr
 	case AddAutoIncDDLAction:
 		return AddAutoIncStr
+	case DropAutoIncDDLAction:
+		return DropAutoIncStr
 	default:
 		return "Unknown DDL Action"
+	}
+}
+
+// ToString returns the string associated with the ProcParameterMode Enum
+func (action ProcParameterMode) ToString() string {
+	switch action {
+	case InMode:
+		return InStr
+	case OutMode:
+		return OutStr
+	case InoutMode:
+		return InoutStr
+	default:
+		return "Unknown Proc Parameter Mode"
+	}
+}
+
+// ToString returns the type as a string
+func (scn SignalConditionName) ToString() string {
+	switch scn {
+	case ClassOriginType:
+		return ClassOriginTypeStr
+	case SubclassOriginType:
+		return SubclassOriginTypeStr
+	case MessageTextType:
+		return MessageTextTypeStr
+	case MySQLErrNoType:
+		return MySQLErrNoTypeStr
+	case ConstraintCatalogType:
+		return ConstraintCatalogTypeStr
+	case ConstraintSchemaType:
+		return ConstraintSchemaTypeStr
+	case ConstraintNameType:
+		return ConstraintNameTypeStr
+	case CatalogNameType:
+		return CatalogNameTypeStr
+	case SchemaNameType:
+		return SchemaNameTypeStr
+	case TableNameType:
+		return TableNameTypeStr
+	case ColumnNameType:
+		return ColumnNameTypeStr
+	case CursorNameType:
+		return CursorNameTypeStr
+	default:
+		return "Unknown SignalConditionName"
+	}
+}
+
+// ToString returns the string associated with the HandlerAction Enum
+func (ha HandlerAction) ToString() string {
+	switch ha {
+	case ContinueAction:
+		return ContinueStr
+	case ExitAction:
+		return ExitStr
+	case UndoAction:
+		return UndoStr
+	default:
+		return "Unknown Handler Action"
 	}
 }
 
@@ -1190,6 +1578,16 @@ func (lock Lock) ToString() string {
 		return NoLockStr
 	case ForUpdateLock:
 		return ForUpdateStr
+	case ForUpdateLockNoWait:
+		return ForUpdateNoWaitStr
+	case ForUpdateLockSkipLocked:
+		return ForUpdateSkipLockedStr
+	case ForShareLock:
+		return ForShareStr
+	case ForShareLockNoWait:
+		return ForShareNoWaitStr
+	case ForShareLockSkipLocked:
+		return ForShareSkipLockedStr
 	case ShareModeLock:
 		return ShareModeStr
 	default:
@@ -1265,6 +1663,65 @@ func (op ComparisonExprOperator) ToString() string {
 	}
 }
 
+func ComparisonExprOperatorFromJson(s string) (ComparisonExprOperator, error) {
+	switch s {
+	case EqualStr:
+		return EqualOp, nil
+	case JsonLessThanStr:
+		return LessThanOp, nil
+	case JsonGreaterThanStr:
+		return GreaterThanOp, nil
+	case JsonLessThanOrEqualStr:
+		return LessEqualOp, nil
+	case JsonGreaterThanOrEqualStr:
+		return GreaterEqualOp, nil
+	case NotEqualStr:
+		return NotEqualOp, nil
+	case NullSafeEqualStr:
+		return NullSafeEqualOp, nil
+	case InStr:
+		return InOp, nil
+	case NotInStr:
+		return NotInOp, nil
+	case LikeStr:
+		return LikeOp, nil
+	case NotLikeStr:
+		return NotLikeOp, nil
+	case RegexpStr:
+		return RegexpOp, nil
+	case NotRegexpStr:
+		return NotRegexpOp, nil
+	default:
+		return 0, fmt.Errorf("unknown ComparisonExpOperator: %s", s)
+	}
+}
+
+const (
+	JsonGreaterThanStr        = "gt"
+	JsonLessThanStr           = "lt"
+	JsonGreaterThanOrEqualStr = "ge"
+	JsonLessThanOrEqualStr    = "le"
+)
+
+// JSONString returns a string representation for this operator that does not need escaping in JSON
+func (op ComparisonExprOperator) JSONString() string {
+	switch op {
+	case EqualOp, NotEqualOp, NullSafeEqualOp, InOp, NotInOp, LikeOp, NotLikeOp, RegexpOp, NotRegexpOp:
+		// These operators are safe for JSON output, so we delegate to ToString
+		return op.ToString()
+	case LessThanOp:
+		return JsonLessThanStr
+	case GreaterThanOp:
+		return JsonGreaterThanStr
+	case LessEqualOp:
+		return JsonLessThanOrEqualStr
+	case GreaterEqualOp:
+		return JsonGreaterThanOrEqualStr
+	default:
+		panic("unreachable")
+	}
+}
+
 // ToString returns the operator as a string
 func (op IsExprOperator) ToString() string {
 	switch op {
@@ -1310,10 +1767,6 @@ func (op BinaryExprOperator) ToString() string {
 		return ShiftLeftStr
 	case ShiftRightOp:
 		return ShiftRightStr
-	case JSONExtractOp:
-		return JSONExtractOpStr
-	case JSONUnquoteExtractOp:
-		return JSONUnquoteExtractOpStr
 	default:
 		return "Unknown BinaryExprOperator"
 	}
@@ -1401,23 +1854,25 @@ func (ty IndexHintType) ToString() string {
 	case UseOp:
 		return UseStr
 	case IgnoreOp:
-		return IgnoreStr
+		return IgnoreIndexStr
 	case ForceOp:
 		return ForceStr
+	case UseVindexOp:
+		return UseVindexStr
+	case IgnoreVindexOp:
+		return IgnoreVindexStr
 	default:
 		return "Unknown IndexHintType"
 	}
 }
 
-// ToString returns the type as a string
-func (ty DeallocateStmtType) ToString() string {
+// IsVindexHint returns if the given hint is a Vindex hint or not.
+func (ty IndexHintType) IsVindexHint() bool {
 	switch ty {
-	case DeallocateType:
-		return DeallocateStr
-	case DropType:
-		return DropStr
+	case UseVindexOp, IgnoreVindexOp:
+		return true
 	default:
-		return "Unknown Deallocate Statement Type"
+		return false
 	}
 }
 
@@ -1670,10 +2125,6 @@ func (ty ExplainType) ToString() string {
 		return TreeStr
 	case JSONType:
 		return JSONStr
-	case VitessType:
-		return VitessStr
-	case VTExplainType:
-		return VTExplainStr
 	case TraditionalType:
 		return TraditionalStr
 	case AnalyzeType:
@@ -1692,56 +2143,12 @@ func (ty VExplainType) ToString() string {
 		return QueriesStr
 	case AllVExplainType:
 		return AllVExplainStr
+	case TraceVExplainType:
+		return TraceStr
+	case KeysVExplainType:
+		return KeysStr
 	default:
 		return "Unknown VExplainType"
-	}
-}
-
-// ToString returns the type as a string
-func (ty IntervalTypes) ToString() string {
-	switch ty {
-	case IntervalYear:
-		return YearStr
-	case IntervalQuarter:
-		return QuarterStr
-	case IntervalMonth:
-		return MonthStr
-	case IntervalWeek:
-		return WeekStr
-	case IntervalDay:
-		return DayStr
-	case IntervalHour:
-		return HourStr
-	case IntervalMinute:
-		return MinuteStr
-	case IntervalSecond:
-		return SecondStr
-	case IntervalMicrosecond:
-		return MicrosecondStr
-	case IntervalYearMonth:
-		return YearMonthStr
-	case IntervalDayHour:
-		return DayHourStr
-	case IntervalDayMinute:
-		return DayMinuteStr
-	case IntervalDaySecond:
-		return DaySecondStr
-	case IntervalHourMinute:
-		return HourMinuteStr
-	case IntervalHourSecond:
-		return HourSecondStr
-	case IntervalMinuteSecond:
-		return MinuteSecondStr
-	case IntervalDayMicrosecond:
-		return DayMicrosecondStr
-	case IntervalHourMicrosecond:
-		return HourMicrosecondStr
-	case IntervalMinuteMicrosecond:
-		return MinuteMicrosecondStr
-	case IntervalSecondMicrosecond:
-		return SecondMicrosecondStr
-	default:
-		return "Unknown IntervalType"
 	}
 }
 
@@ -1770,6 +2177,26 @@ func (node DatabaseOptionType) ToString() string {
 		return EncryptionStr
 	default:
 		return "Unknown DatabaseOptionType Type"
+	}
+}
+
+// IsCommutative returns whether the join type supports rearranging or not.
+func (joinType JoinType) IsCommutative() bool {
+	switch joinType {
+	case StraightJoinType, LeftJoinType, RightJoinType, NaturalLeftJoinType, NaturalRightJoinType:
+		return false
+	default:
+		return true
+	}
+}
+
+// IsInner returns whether the join type is an inner join or not.
+func (joinType JoinType) IsInner() bool {
+	switch joinType {
+	case StraightJoinType, NaturalJoinType, NormalJoinType:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -1864,6 +2291,8 @@ func (ty ShowCommandType) ToString() string {
 		return VitessVariablesStr
 	case VschemaTables:
 		return VschemaTablesStr
+	case VschemaKeyspaces:
+		return VschemaKeyspacesStr
 	case VschemaVindexes:
 		return VschemaVindexesStr
 	case Warnings:
@@ -1917,6 +2346,8 @@ func (columnFormat ColumnFormat) ToString() string {
 		return keywordStrings[DYNAMIC]
 	case DefaultFormat:
 		return keywordStrings[DEFAULT]
+	case CompressedFormat:
+		return keywordStrings[COMPRESSED]
 	default:
 		return "Unknown column format type"
 	}
@@ -1942,17 +2373,6 @@ func (node *ColName) CompliantName() string {
 		return node.Qualifier.Name.CompliantName() + "_" + node.Name.CompliantName()
 	}
 	return node.Name.CompliantName()
-}
-
-// isExprAliasForCurrentTimeStamp returns true if the Expr provided is an alias for CURRENT_TIMESTAMP
-func isExprAliasForCurrentTimeStamp(expr Expr) bool {
-	switch node := expr.(type) {
-	case *FuncExpr:
-		return node.Name.EqualString("current_timestamp") || node.Name.EqualString("now") || node.Name.EqualString("localtimestamp") || node.Name.EqualString("localtime")
-	case *CurTimeFuncExpr:
-		return node.Name.EqualString("current_timestamp") || node.Name.EqualString("now") || node.Name.EqualString("localtimestamp") || node.Name.EqualString("localtime")
-	}
-	return false
 }
 
 // AtCount represents the '@' count in IdentifierCI
@@ -2003,109 +2423,80 @@ func formatAddress(address string) string {
 func ContainsAggregation(e SQLNode) bool {
 	hasAggregates := false
 	_ = Walk(func(node SQLNode) (kontinue bool, err error) {
-		if _, isAggregate := node.(AggrFunc); isAggregate {
-			hasAggregates = true
+		switch node.(type) {
+		case *Offset:
+			// offsets here indicate that a possible aggregation has already been handled by an input
+			// so we don't need to worry about aggregation in the original
 			return false, nil
+		case AggrFunc:
+			hasAggregates = true
+			return false, io.EOF
 		}
+
 		return true, nil
 	}, e)
 	return hasAggregates
 }
 
+// setFuncArgs sets the arguments for the aggregation function, while checking that there is only one argument
+func setFuncArgs(aggr AggrFunc, exprs []Expr, name string) error {
+	if len(exprs) != 1 {
+		return vterrors.VT03001(name)
+	}
+	aggr.SetArg(exprs[0])
+	return nil
+}
+
 // GetFirstSelect gets the first select statement
-func GetFirstSelect(selStmt SelectStatement) *Select {
+func GetFirstSelect(selStmt TableStatement) (*Select, error) {
 	if selStmt == nil {
-		return nil
+		return nil, nil
 	}
 	switch node := selStmt.(type) {
 	case *Select:
-		return node
+		return node, nil
+	case *ValuesStatement:
+		return nil, vterrors.VT12001("first table_reference as VALUES")
 	case *Union:
 		return GetFirstSelect(node.Left)
 	}
-	panic("[BUG]: unknown type for SelectStatement")
+	return nil, vterrors.VT13001(fmt.Sprintf("unknown type for SelectStatement: %T", selStmt))
 }
 
 // GetAllSelects gets all the select statement s
-func GetAllSelects(selStmt SelectStatement) []*Select {
+func GetAllSelects(selStmt TableStatement) []TableStatement {
 	switch node := selStmt.(type) {
 	case *Select:
-		return []*Select{node}
+		return []TableStatement{node}
 	case *Union:
 		return append(GetAllSelects(node.Left), GetAllSelects(node.Right)...)
+	case *ValuesStatement:
+		return []TableStatement{node}
 	}
 	panic("[BUG]: unknown type for SelectStatement")
-}
-
-// SetArgName sets argument name.
-func (es *ExtractedSubquery) SetArgName(n string) {
-	es.argName = n
-	es.updateAlternative()
-}
-
-// SetHasValuesArg sets has_values argument.
-func (es *ExtractedSubquery) SetHasValuesArg(n string) {
-	es.hasValuesArg = n
-	es.updateAlternative()
-}
-
-// GetArgName returns argument name.
-func (es *ExtractedSubquery) GetArgName() string {
-	return es.argName
-}
-
-// GetHasValuesArg returns has values argument.
-func (es *ExtractedSubquery) GetHasValuesArg() string {
-	return es.hasValuesArg
-
-}
-
-func (es *ExtractedSubquery) updateAlternative() {
-	switch original := es.Original.(type) {
-	case *ExistsExpr:
-		es.alternative = NewArgument(es.hasValuesArg)
-	case *Subquery:
-		es.alternative = NewArgument(es.argName)
-	case *ComparisonExpr:
-		// other_side = :__sq
-		cmp := &ComparisonExpr{
-			Left:     es.OtherSide,
-			Right:    NewArgument(es.argName),
-			Operator: original.Operator,
-		}
-		var expr Expr = cmp
-		switch original.Operator {
-		case InOp:
-			// :__sq_has_values = 1 and other_side in ::__sq
-			cmp.Right = NewListArg(es.argName)
-			hasValue := &ComparisonExpr{Left: NewArgument(es.hasValuesArg), Right: NewIntLiteral("1"), Operator: EqualOp}
-			expr = AndExpressions(hasValue, cmp)
-		case NotInOp:
-			// :__sq_has_values = 0 or other_side not in ::__sq
-			cmp.Right = NewListArg(es.argName)
-			hasValue := &ComparisonExpr{Left: NewArgument(es.hasValuesArg), Right: NewIntLiteral("0"), Operator: EqualOp}
-			expr = &OrExpr{hasValue, cmp}
-		}
-		es.alternative = expr
-	}
 }
 
 // ColumnName returns the alias if one was provided, otherwise prints the AST
 func (ae *AliasedExpr) ColumnName() string {
-	if !ae.As.IsEmpty() {
+	if ae.As.NotEmpty() {
 		return ae.As.String()
 	}
 
-	if col, ok := ae.Expr.(*ColName); ok {
-		return col.Name.String()
+	switch node := ae.Expr.(type) {
+	case *ColName:
+		return node.Name.String()
+	case *Literal:
+		if node.Type == StrVal {
+			return node.Val
+		}
 	}
 
 	return String(ae.Expr)
 }
 
 // AllAggregation returns true if all the expressions contain aggregation
-func (s SelectExprs) AllAggregation() bool {
-	for _, k := range s {
+func (s *SelectExprs) AllAggregation() bool {
+	for _, k := range s.Exprs {
 		if !ContainsAggregation(k) {
 			return false
 		}
@@ -2113,62 +2504,82 @@ func (s SelectExprs) AllAggregation() bool {
 	return true
 }
 
-func isExprLiteral(expr Expr) bool {
-	switch expr := expr.(type) {
-	case *Literal:
-		return true
-	case BoolVal:
-		return true
-	case *UnaryExpr:
-		return isExprLiteral(expr.Expr)
-	default:
-		return false
-	}
-}
-
-func defaultRequiresParens(ct *ColumnType) bool {
-	// in 5.7 null value should be without parenthesis, in 8.0 it is allowed either way.
-	// so it is safe to not keep parenthesis around null.
-	if _, isNullVal := ct.Options.Default.(*NullVal); isNullVal {
-		return false
-	}
-
-	switch strings.ToUpper(ct.Type) {
-	case "TINYTEXT", "TEXT", "MEDIUMTEXT", "LONGTEXT", "TINYBLOB", "BLOB", "MEDIUMBLOB",
-		"LONGBLOB", "JSON", "GEOMETRY", "POINT",
-		"LINESTRING", "POLYGON", "MULTIPOINT", "MULTILINESTRING",
-		"MULTIPOLYGON", "GEOMETRYCOLLECTION":
-		return true
-	}
-
-	if isExprLiteral(ct.Options.Default) || isExprAliasForCurrentTimeStamp(ct.Options.Default) {
-		return false
-	}
-
-	return true
-}
-
-// RemoveKeyspaceFromColName removes the Qualifier.Qualifier on all ColNames in the expression tree
-func RemoveKeyspaceFromColName(expr Expr) {
-	RemoveKeyspace(expr)
-}
-
-// RemoveKeyspace removes the Qualifier.Qualifier on all ColNames in the AST
-func RemoveKeyspace(in SQLNode) {
+// RemoveKeyspaceInCol removes the Qualifier.Qualifier on all ColNames in the AST
+func RemoveKeyspaceInCol(in SQLNode) {
 	// Walk will only return an error if we return an error from the inner func. safe to ignore here
 	_ = Walk(func(node SQLNode) (kontinue bool, err error) {
-		switch col := node.(type) {
-		case *ColName:
-			if !col.Qualifier.Qualifier.IsEmpty() {
-				col.Qualifier.Qualifier = NewIdentifierCS("")
-			}
+		if col, ok := node.(*ColName); ok && col.Qualifier.Qualifier.NotEmpty() {
+			col.Qualifier.Qualifier = NewIdentifierCS("")
 		}
+
 		return true, nil
 	}, in)
 }
 
+// RemoveKeyspace removes the keyspace qualifier from all ColName and TableName
+func RemoveKeyspace(in SQLNode) {
+	removeKeyspace(in, func(_ string) bool {
+		return true // Always remove
+	})
+}
+
+// RemoveSpecificKeyspace removes the keyspace qualifier from all ColName and TableName
+// when it matches the keyspace provided
+func RemoveSpecificKeyspace(in SQLNode, keyspace string) {
+	removeKeyspace(in, func(qualifier string) bool {
+		return qualifier == keyspace // Remove only if it matches the provided keyspace
+	})
+}
+
+// RemoveKeyspaceIgnoreSysSchema removes the keyspace qualifier from all ColName and TableName
+// except for the system schema qualifier.
+func RemoveKeyspaceIgnoreSysSchema(in SQLNode) {
+	removeKeyspace(in, func(qualifier string) bool {
+		return qualifier != "" && !SystemSchema(qualifier) // Remove if it's not empty and not a system schema
+	})
+}
+
+func removeKeyspace(in SQLNode, shouldRemove func(qualifier string) bool) {
+	Rewrite(in, nil, func(cursor *Cursor) bool {
+		switch expr := cursor.Node().(type) {
+		case *ColName:
+			if shouldRemove(expr.Qualifier.Qualifier.String()) {
+				expr.Qualifier.Qualifier = NewIdentifierCS("")
+			}
+		case TableName:
+			if shouldRemove(expr.Qualifier.String()) {
+				expr.Qualifier = NewIdentifierCS("")
+				cursor.Replace(expr)
+			}
+		}
+		return true
+	})
+}
+
+// AddKeyspace adds the keyspace qualifier to TableName if it's not already present
+func AddKeyspace(in SQLNode, ks string) {
+	Rewrite(in, func(cursor *Cursor) bool {
+		switch expr := cursor.Node().(type) {
+		case *ColName:
+			// ignore it
+			return false
+		case TableName:
+			if expr.Qualifier.IsEmpty() {
+				expr.Qualifier = NewIdentifierCS(ks)
+				cursor.Replace(expr)
+			}
+		}
+		return true
+	}, nil)
+}
+
 func convertStringToInt(integer string) int {
 	val, _ := strconv.Atoi(integer)
+	return val
+}
+
+func convertStringToUInt64(integer string) uint64 {
+	val, _ := strconv.ParseUint(integer, 10, 64)
 	return val
 }
 
@@ -2220,3 +2631,551 @@ func AndExpressions(exprs ...Expr) Expr {
 
 // Equals is the default Comparator for AST expressions.
 var Equals = &Comparator{}
+
+// ToString returns the type as a string
+func (ty GeomPropertyType) ToString() string {
+	switch ty {
+	case IsEmpty:
+		return IsEmptyStr
+	case IsSimple:
+		return IsSimpleStr
+	case Envelope:
+		return EnvelopeStr
+	case GeometryType:
+		return GeometryTypeStr
+	case Dimension:
+		return DimensionStr
+	default:
+		return "Unknown GeomPropertyType"
+	}
+}
+
+// ToString returns the type as a string
+func (ty PointPropertyType) ToString() string {
+	switch ty {
+	case XCordinate:
+		return XCordinateStr
+	case YCordinate:
+		return YCordinateStr
+	case Latitude:
+		return LatitudeStr
+	case Longitude:
+		return LongitudeStr
+	default:
+		return "Unknown PointPropertyType"
+	}
+}
+
+// ToString returns the type as a string
+func (ty LinestrPropType) ToString() string {
+	switch ty {
+	case EndPoint:
+		return EndPointStr
+	case IsClosed:
+		return IsClosedStr
+	case Length:
+		return LengthStr
+	case NumPoints:
+		return NumPointsStr
+	case PointN:
+		return PointNStr
+	case StartPoint:
+		return StartPointStr
+	default:
+		return "Unknown LinestrPropType"
+	}
+}
+
+// ToString returns the type as a string
+func (ty PolygonPropType) ToString() string {
+	switch ty {
+	case Area:
+		return AreaStr
+	case Centroid:
+		return CentroidStr
+	case ExteriorRing:
+		return ExteriorRingStr
+	case InteriorRingN:
+		return InteriorRingNStr
+	case NumInteriorRings:
+		return NumInteriorRingsStr
+	default:
+		return "Unknown PolygonPropType"
+	}
+}
+
+// ToString returns the type as a string
+func (ty GeomCollPropType) ToString() string {
+	switch ty {
+	case GeometryN:
+		return GeometryNStr
+	case NumGeometries:
+		return NumGeometriesStr
+	default:
+		return "Unknown GeomCollPropType"
+	}
+}
+
+// ToString returns the type as a string
+func (ty GeomFromHashType) ToString() string {
+	switch ty {
+	case LatitudeFromHash:
+		return LatitudeFromHashStr
+	case LongitudeFromHash:
+		return LongitudeFromHashStr
+	case PointFromHash:
+		return PointFromHashStr
+	default:
+		return "Unknown GeomFromGeoHashType"
+	}
+}
+
+// ToString returns the type as a string
+func (ty GeomFormatType) ToString() string {
+	switch ty {
+	case BinaryFormat:
+		return BinaryFormatStr
+	case TextFormat:
+		return TextFormatStr
+	default:
+		return "Unknown GeomFormatType"
+	}
+}
+
+// ToString returns the type as a string
+func (ty GeomFromWktType) ToString() string {
+	switch ty {
+	case GeometryFromText:
+		return GeometryFromTextStr
+	case GeometryCollectionFromText:
+		return GeometryCollectionFromTextStr
+	case PointFromText:
+		return PointFromTextStr
+	case PolygonFromText:
+		return PolygonFromTextStr
+	case LineStringFromText:
+		return LineStringFromTextStr
+	case MultiPointFromText:
+		return MultiPointFromTextStr
+	case MultiLinestringFromText:
+		return MultiLinestringFromTextStr
+	case MultiPolygonFromText:
+		return MultiPolygonFromTextStr
+	default:
+		return "Unknown GeomFromWktType"
+	}
+}
+
+// ToString returns the type as a string
+func (ty GeomFromWkbType) ToString() string {
+	switch ty {
+	case GeometryFromWKB:
+		return GeometryFromWKBStr
+	case GeometryCollectionFromWKB:
+		return GeometryCollectionFromWKBStr
+	case PointFromWKB:
+		return PointFromWKBStr
+	case PolygonFromWKB:
+		return PolygonFromWKBStr
+	case LineStringFromWKB:
+		return LineStringFromWKBStr
+	case MultiPointFromWKB:
+		return MultiPointFromWKBStr
+	case MultiLinestringFromWKB:
+		return MultiLinestringFromWKBStr
+	case MultiPolygonFromWKB:
+		return MultiPolygonFromWKBStr
+	default:
+		return "Unknown GeomFromWktType"
+	}
+}
+
+func getAliasedTableExprFromTableName(tblName TableName) *AliasedTableExpr {
+	return &AliasedTableExpr{
+		Expr: tblName,
+	}
+}
+
+func (node *IntervalDateExpr) IsSubtraction() bool {
+	switch node.Syntax {
+	case IntervalDateExprDateAdd, IntervalDateExprAdddate, IntervalDateExprBinaryAdd, IntervalDateExprBinaryAddLeft, IntervalDateExprTimestampadd:
+		return false
+	case IntervalDateExprDateSub, IntervalDateExprSubdate, IntervalDateExprBinarySub:
+		return true
+	default:
+		panic("invalid IntervalDateExpr syntax")
+	}
+}
+
+func (node *IntervalDateExpr) NormalizedUnit() IntervalType {
+	if node.Unit == IntervalNone {
+		if node.Syntax == IntervalDateExprAdddate || node.Syntax == IntervalDateExprSubdate {
+			return IntervalDay
+		}
+		panic("IntervalDateExpr.Unit is not set")
+	}
+	return node.Unit
+}
+
+func (node *IntervalDateExpr) FnName() string {
+	switch node.Syntax {
+	case IntervalDateExprDateAdd:
+		return "date_add"
+	case IntervalDateExprDateSub:
+		return "date_sub"
+	case IntervalDateExprAdddate:
+		return "adddate"
+	case IntervalDateExprSubdate:
+		return "subdate"
+	case IntervalDateExprTimestampadd:
+		return "timestampadd"
+	case IntervalDateExprBinaryAdd, IntervalDateExprBinaryAddLeft:
+		return "<arithmetic interval addition>"
+	case IntervalDateExprBinarySub:
+		return "<arithmetic interval subtraction>"
+	default:
+		return "<unknown>"
+	}
+}
+
+func IsDistinct(f AggrFunc) bool {
+	da, ok := f.(DistinctableAggr)
+	if !ok {
+		return false
+	}
+	return da.IsDistinct()
+}
+
+// ToString returns the type as a string
+func (ty KillType) ToString() string {
+	switch ty {
+	case QueryType:
+		return QueryStr
+	default:
+		return ConnectionStr
+	}
+}
+
+// Indexes returns true, if the list of columns contains all the elements in the other list.
+// It also returns the indexes of the columns in the list.
+func (cols Columns) Indexes(subSetCols Columns) (bool, []int) {
+	var indexes []int
+	for _, subSetCol := range subSetCols {
+		colFound := false
+		for idx, col := range cols {
+			if col.Equal(subSetCol) {
+				colFound = true
+				indexes = append(indexes, idx)
+				break
+			}
+		}
+		if !colFound {
+			return false, nil
+		}
+	}
+	return true, indexes
+}
+
+// MakeColumns is used to make a list of columns from a list of strings.
+// This function is meant to be used in testing code.
+func MakeColumns(colNames ...string) Columns {
+	var cols Columns
+	for _, name := range colNames {
+		cols = append(cols, NewIdentifierCI(name))
+	}
+	return cols
+}
+
+func VisitAllSelects(in TableStatement, f func(p *Select, idx int) error) error {
+	v := visitor{}
+	return v.visitAllSelects(in, f)
+}
+
+type visitor struct {
+	idx int
+}
+
+func (v *visitor) visitAllSelects(in TableStatement, f func(p *Select, idx int) error) error {
+	switch sel := in.(type) {
+	case *Select:
+		err := f(sel, v.idx)
+		v.idx++
+		return err
+	case *Union:
+		err := v.visitAllSelects(sel.Left, f)
+		if err != nil {
+			return err
+		}
+		return v.visitAllSelects(sel.Right, f)
+	}
+	panic("switch should be exhaustive")
+}
+
+// IsRestrict returns true if the reference action is of restrict type.
+func (ra ReferenceAction) IsRestrict() bool {
+	switch ra {
+	case Restrict, NoAction, DefaultAction:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsCascade returns true if the reference action is of cascade type.
+func (ra ReferenceAction) IsCascade() bool {
+	switch ra {
+	case Cascade:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsLiteral returns true if the expression is of a literal type.
+func IsLiteral(expr Expr) bool {
+	switch expr.(type) {
+	case *Argument, *NullVal, BoolVal, *Literal:
+		return true
+	default:
+		return false
+	}
+}
+
+// AppendString appends a string to the expression provided.
+// This is intended to be used in the parser only for concatenating multiple strings together.
+func AppendString(expr Expr, in string) Expr {
+	switch node := expr.(type) {
+	case *Literal:
+		node.Val = node.Val + in
+		return node
+	case *UnaryExpr:
+		node.Expr = AppendString(node.Expr, in)
+		return node
+	case *IntroducerExpr:
+		node.Expr = AppendString(node.Expr, in)
+		return node
+	}
+	return nil
+}
+
+func (ct *ColumnType) Invisible() bool {
+	return ct.Options.Invisible != nil && *ct.Options.Invisible
+}
+
+func (node *Delete) IsSingleAliasExpr() bool {
+	if len(node.Targets) > 1 {
+		return false
+	}
+	if len(node.TableExprs) != 1 {
+		return false
+	}
+	_, isAliasExpr := node.TableExprs[0].(*AliasedTableExpr)
+	return isAliasExpr
+}
+
+func MultiTable(node []TableExpr) bool {
+	if len(node) > 1 {
+		return true
+	}
+	_, singleTbl := node[0].(*AliasedTableExpr)
+	return !singleTbl
+}
+
+func (node *Update) AddOrder(order *Order) {
+	node.OrderBy = append(node.OrderBy, order)
+}
+
+func (node *Update) SetLimit(limit *Limit) {
+	node.Limit = limit
+}
+
+func (node *Update) GetOrderBy() OrderBy {
+	return node.OrderBy
+}
+
+func (node *Update) SetOrderBy(by OrderBy) {
+	node.OrderBy = by
+}
+
+func (node *Update) GetLimit() *Limit {
+	return node.Limit
+}
+
+func (node *Delete) GetOrderBy() OrderBy {
+	return node.OrderBy
+}
+
+func (node *Delete) SetOrderBy(by OrderBy) {
+	node.OrderBy = by
+}
+
+func (node *Delete) GetLimit() *Limit {
+	return node.Limit
+}
+
+func (node *Delete) AddOrder(order *Order) {
+	node.OrderBy = append(node.OrderBy, order)
+}
+
+func (node *Delete) SetLimit(limit *Limit) {
+	node.Limit = limit
+}
+
+func (node *Select) GetFrom() []TableExpr {
+	return node.From
+}
+
+func (node *Select) SetFrom(exprs []TableExpr) {
+	node.From = exprs
+}
+
+func (node *Select) GetWherePredicate() Expr {
+	if node.Where == nil {
+		return nil
+	}
+	return node.Where.Expr
+}
+
+func (node *Select) SetWherePredicate(expr Expr) {
+	node.Where = &Where{
+		Type: WhereClause,
+		Expr: expr,
+	}
+}
+func (node *Delete) GetFrom() []TableExpr {
+	return node.TableExprs
+}
+
+func (node *Delete) SetFrom(exprs []TableExpr) {
+	node.TableExprs = exprs
+}
+
+func (node *Delete) GetWherePredicate() Expr {
+	if node.Where == nil {
+		return nil
+	}
+	return node.Where.Expr
+}
+
+func (node *Delete) SetWherePredicate(expr Expr) {
+	node.Where = &Where{
+		Type: WhereClause,
+		Expr: expr,
+	}
+}
+
+func (node *Update) GetFrom() []TableExpr {
+	return node.TableExprs
+}
+
+func (node *Update) SetFrom(exprs []TableExpr) {
+	node.TableExprs = exprs
+}
+
+func (node *Update) GetWherePredicate() Expr {
+	if node.Where == nil {
+		return nil
+	}
+	return node.Where.Expr
+}
+
+func (node *Update) SetWherePredicate(expr Expr) {
+	node.Where = &Where{
+		Type: WhereClause,
+		Expr: expr,
+	}
+}
+
+// GetHighestOrderLock returns the higher level lock between the current lock and the new lock
+func (lock Lock) GetHighestOrderLock(newLock Lock) Lock {
+	if newLock > lock {
+		return newLock
+	}
+	return lock
+}
+
+// Clone returns a deep copy of the SQLNode, typed as the original type
+func Clone[K SQLNode](x K) K {
+	return CloneSQLNode(x).(K)
+}
+
+// ExtractAllTables returns all the table names in the SQLNode as slice of string
+func ExtractAllTables(stmt Statement) []string {
+	var tables []string
+	tableMap := make(map[string]any)
+	_ = Walk(func(node SQLNode) (kontinue bool, err error) {
+		switch node := node.(type) {
+		case *AliasedTableExpr:
+			if tblName, ok := node.Expr.(TableName); ok {
+				name := String(tblName)
+				if _, exists := tableMap[name]; !exists {
+					tableMap[name] = nil
+					tables = append(tables, name)
+				}
+				return false, nil
+			}
+		}
+		return true, nil
+	}, stmt)
+	return tables
+}
+
+var _ TableStatement = (*ValuesStatement)(nil)
+
+func (node *ValuesStatement) iTableStatement() {}
+
+func (node *ValuesStatement) SetWith(with *With) {
+	node.With = with
+}
+
+func (node *ValuesStatement) GetOrderBy() OrderBy {
+	return node.Order
+}
+
+func (node *ValuesStatement) SetOrderBy(by OrderBy) {
+	node.Order = by
+}
+
+func (node *ValuesStatement) GetLimit() *Limit {
+	return node.Limit
+}
+
+func (node *ValuesStatement) AddOrder(order *Order) {
+	node.Order = append(node.Order, order)
+}
+
+func (node *ValuesStatement) SetLimit(limit *Limit) {
+	node.Limit = limit
+}
+
+func (node *ValuesStatement) GetColumnCount() int {
+	if len(node.Rows) > 0 {
+		return len(node.Rows[0])
+	}
+	panic("no columns available") // TODO: we need a better solution than a panic
+}
+
+func (node *ValuesStatement) GetColumns() []SelectExpr {
+	var sel []SelectExpr
+	columnCount := node.GetColumnCount()
+	for i := range columnCount {
+		sel = append(sel, &AliasedExpr{Expr: NewColName(fmt.Sprintf("column_%d", i))})
+	}
+	_ = sel
+	panic("no columns available") // TODO: we need a better solution than a panic
+}
+
+func (node *ValuesStatement) SetComments(comments Comments) {}
+
+func (node *ValuesStatement) GetParsedComments() *ParsedComments { return nil }
+
+func NewFuncExpr(name string, exprs ...Expr) *FuncExpr {
+	return &FuncExpr{
+		Name:  NewIdentifierCI(name),
+		Exprs: exprs,
+	}
+}
+
+func NewExprs(exprs ...Expr) *Exprs {
+	return &Exprs{Exprs: exprs}
+}
