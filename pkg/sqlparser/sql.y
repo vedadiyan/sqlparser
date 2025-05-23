@@ -281,7 +281,7 @@ func markBindVariable(yylex yyLexer, bvar string) {
 %token <str> VALUES LAST_INSERT_ID
 %token <str> NEXT VALUE SHARE MODE
 %token <str> SQL_NO_CACHE SQL_CACHE SQL_CALC_FOUND_ROWS SQL_SMALL_RESULT SQL_BIG_RESULT HIGH_PRIORITY
-%left <str> JOIN STRAIGHT_JOIN LEFT RIGHT INNER OUTER CROSS HASH NATURAL USE FORCE
+%left <str> JOIN STRAIGHT_JOIN HASH_JOIN LEFT RIGHT INNER OUTER CROSS  NATURAL USE FORCE
 %left <str> ON USING INPLACE COPY INSTANT ALGORITHM NONE SHARED EXCLUSIVE
 %left <str> SUBQUERY_AS_EXPR
 %left <str> '(' ',' ')'
@@ -451,7 +451,7 @@ func markBindVariable(yylex yyLexer, bvar string) {
 %token <str> FIXED DYNAMIC COMPRESSED REDUNDANT COMPACT ROW_FORMAT STATS_AUTO_RECALC STATS_PERSISTENT STATS_SAMPLE_PAGES STORAGE MEMORY DISK
 
 // Partitions tokens
-%token <str> PARTITIONS LINEAR RANGE LIST SUBPARTITION SUBPARTITIONS HASHFUNC
+%token <str> PARTITIONS LINEAR RANGE LIST SUBPARTITION SUBPARTITIONS HASH
 
 %type <partitionByType> range_or_list
 %type <integer> partitions_opt algorithm_opt subpartitions_opt partition_max_rows partition_min_rows
@@ -3816,7 +3816,7 @@ partitions_options_opt:
     }
 
 partitions_options_beginning:
-  linear_opt HASHFUNC '(' expression ')'
+  linear_opt HASH '(' expression ')'
     {
     $$ = &PartitionOption {
         IsLinear: $1,
@@ -3852,7 +3852,7 @@ subpartition_opt:
   {
     $$ = nil
   }
-| SUBPARTITION BY linear_opt HASHFUNC '(' expression ')' subpartitions_opt
+| SUBPARTITION BY linear_opt HASH '(' expression ')' subpartitions_opt
   {
     $$ = &SubPartition {
       IsLinear: $3,
@@ -5562,7 +5562,7 @@ inner_join:
   {
     $$ = NormalJoinType
   }
-| INNER HASH JOIN
+| INNER HASH_JOIN
   {
     $$ = HashJoinType
   }  
@@ -5570,7 +5570,7 @@ inner_join:
   {
     $$ = ParallelNormalJoinType
   } 
-| PARALLEL INNER HASH JOIN
+| PARALLEL INNER HASH_JOIN
   {
     $$ = ParallelHashJoinType
   }    
@@ -5578,11 +5578,11 @@ inner_join:
   {
     $$ = NormalJoinType
   }
-| HASH JOIN
+| HASH_JOIN
   {
     $$ = HashJoinType
   }  
-| PARALLEL HASH JOIN
+| PARALLEL HASH_JOIN
   {
     $$ = ParallelHashJoinType
   }    
@@ -5603,11 +5603,11 @@ outer_join:
   {
     $$ = ParallelLeftJoinType
   }  
-| LEFT HASH JOIN
+| LEFT HASH_JOIN
   {
     $$ = LeftHashJoinType
   }
-| PARALLEL LEFT HASH JOIN
+| PARALLEL LEFT HASH_JOIN
   {
     $$ = ParallelLeftHashJoinType
   }  
@@ -5619,11 +5619,11 @@ outer_join:
   {
     $$ = ParallelLeftJoinType
   }  
-| LEFT OUTER HASH JOIN
+| LEFT OUTER HASH_JOIN
   {
     $$ = LeftHashJoinType
   }  
-| PARALLEL LEFT OUTER HASH JOIN
+| PARALLEL LEFT OUTER HASH_JOIN
   {
     $$ = ParallelLeftHashJoinType
   }    
@@ -5635,11 +5635,11 @@ outer_join:
   {
     $$ = ParallelRightJoinType
   }  
-| RIGHT HASH JOIN
+| RIGHT HASH_JOIN
   {
     $$ = RightHashJoinType
   } 
-| PARALLEL RIGHT HASH JOIN
+| PARALLEL RIGHT HASH_JOIN
   {
     $$ = ParallelRightHashJoinType
   }    
@@ -5651,11 +5651,11 @@ outer_join:
   {
     $$ = ParallelRightJoinType
   }  
-| RIGHT OUTER HASH JOIN
+| RIGHT OUTER HASH_JOIN
   {
     $$ = RightHashJoinType
   }  
-| PARALLEL RIGHT OUTER HASH JOIN
+| PARALLEL RIGHT OUTER HASH_JOIN
   {
     $$ = ParallelRightHashJoinType
   }    
@@ -8720,7 +8720,6 @@ reserved_keyword:
 | GROUP
 | GROUPING
 | GROUPS
-| HASH
 | HAVING
 | HIGH_PRIORITY
 | IF
@@ -8967,7 +8966,7 @@ non_reserved_keyword:
 | GTID_SUBSET %prec FUNCTION_CALL_NON_KEYWORD
 | GTID_SUBTRACT %prec FUNCTION_CALL_NON_KEYWORD
 | HANDLER
-| HASHFUNC
+| HASH
 | HEADER
 | HISTOGRAM
 | HISTORY

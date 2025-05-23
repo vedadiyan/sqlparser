@@ -642,6 +642,7 @@ var keywords = []keyword{
 	{"storage", STORAGE},
 	{"stored", STORED},
 	{"straight_join", STRAIGHT_JOIN},
+	{"hash_join", HASH_JOIN},
 	{"stream", STREAM},
 	{"st_area", ST_Area},
 	{"st_asbinary", ST_AsBinary},
