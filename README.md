@@ -7,8 +7,7 @@ A MySQL SQL parsing library for Go, derived from and extending the Vitess SQL pa
 SQLParser is a Go library that provides robust SQL parsing capabilities for MySQL syntax. This project is based on the SQL parsing components of the [Vitess](https://github.com/vitessio/vitess) project, with specific modifications and enhancements to better serve as a standalone parsing library.
 
 Key modifications include:
-- Renamed `HASH` function to `HASHFUNC` to avoid naming conflicts
-- Added support for `HASH` and `PARALLEL` join types
+- Added support for `HASH_JOIN` and `PARALLEL` join types
 - Modified syntax to improve parsing flexibility and functionality
 - Streamlined for use as an importable Go library
 
@@ -29,7 +28,7 @@ import (
 )
 
 func main() {
-    sql := "SELECT * FROM users PARALLEL HASH JOIN orders ON users.id = orders.user_id"
+    sql := "SELECT * FROM users PARALLEL HASH_JOIN orders ON users.id = orders.user_id"
     
     stmt, err := sqlparser.Parse(sql)
     if err != nil {
@@ -44,7 +43,7 @@ func main() {
 ## Features
 
 - Complete MySQL syntax parsing
-- Support for `HASH` and `PARALLEL` join types
+- Support for `HASH_JOIN` and `PARALLEL` join types
 - AST (Abstract Syntax Tree) generation for SQL statements
 - Thread-safe and efficient parsing
 
