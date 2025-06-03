@@ -18,7 +18,7 @@ limitations under the License.
 // This package contains a shared time data structure
 
 syntax = "proto3";
-option go_package = "github.com/vedadiyan/sqlparser/vttime";
+option go_package = "github.com/vedadiyan/sqlparser/v2/vttime";
 
 package vttime;
 

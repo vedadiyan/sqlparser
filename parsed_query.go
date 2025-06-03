@@ -21,8 +21,8 @@ import (
 	"fmt"
 	"strings"
 
-	querypb "github.com/vedadiyan/sqlparser/query"
-	"github.com/vedadiyan/sqlparser/sqltypes"
+	querypb "github.com/vedadiyan/sqlparser/v2/query"
+	"github.com/vedadiyan/sqlparser/v2/sqltypes"
 )
 
 // ParsedQuery represents a parsed query where

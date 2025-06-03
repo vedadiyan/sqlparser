@@ -17,7 +17,7 @@ limitations under the License.
 package sqltypes
 
 import (
-	querypb "github.com/vedadiyan/sqlparser/query"
+	querypb "github.com/vedadiyan/sqlparser/v2/query"
 )
 
 // EventTokenMinimum returns an event token that is guaranteed to

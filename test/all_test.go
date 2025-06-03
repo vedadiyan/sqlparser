@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/vedadiyan/sqlparser/sqlparser"
+	"github.com/vedadiyan/sqlparser/v2"
 )
 
 func TestParse(t *testing.T) {

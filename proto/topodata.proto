@@ -21,7 +21,7 @@ limitations under the License.
 // service.
 
 syntax = "proto3";
-option go_package = "github.com/vedadiyan/sqlparser/topodata";
+option go_package = "github.com/vedadiyan/sqlparser/v2/topodata";
 
 
 package topodata;

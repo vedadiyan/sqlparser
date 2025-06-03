@@ -17,8 +17,8 @@ limitations under the License.
 package sqlparser
 
 import (
-	"github.com/vedadiyan/sqlparser/vterrors"
-	vtrpcpb "github.com/vedadiyan/sqlparser/vtrpc"
+	"github.com/vedadiyan/sqlparser/v2/vterrors"
+	vtrpcpb "github.com/vedadiyan/sqlparser/v2/vtrpc"
 )
 
 // ParseTable parses the input as a qualified table name.

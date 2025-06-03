@@ -13,8 +13,8 @@ import (
 	io "io"
 	math "math"
 	sync "sync"
-	topodata "github.com/vedadiyan/sqlparser/topodata"
-	vtrpc "github.com/vedadiyan/sqlparser/vtrpc"
+	topodata "github.com/vedadiyan/sqlparser/v2/topodata"
+	vtrpc "github.com/vedadiyan/sqlparser/v2/vtrpc"
 )
 
 const (

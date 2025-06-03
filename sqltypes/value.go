@@ -30,15 +30,15 @@ import (
 
 	"google.golang.org/protobuf/encoding/protowire"
 
-	"github.com/vedadiyan/sqlparser/bytes2"
-	"github.com/vedadiyan/sqlparser/hack"
-	"github.com/vedadiyan/sqlparser/mysql/datetime"
-	"github.com/vedadiyan/sqlparser/mysql/decimal"
-	"github.com/vedadiyan/sqlparser/mysql/fastparse"
-	"github.com/vedadiyan/sqlparser/mysql/format"
-	querypb "github.com/vedadiyan/sqlparser/query"
-	"github.com/vedadiyan/sqlparser/vterrors"
-	vtrpcpb "github.com/vedadiyan/sqlparser/vtrpc"
+	"github.com/vedadiyan/sqlparser/v2/bytes2"
+	"github.com/vedadiyan/sqlparser/v2/hack"
+	"github.com/vedadiyan/sqlparser/v2/mysql/datetime"
+	"github.com/vedadiyan/sqlparser/v2/mysql/decimal"
+	"github.com/vedadiyan/sqlparser/v2/mysql/fastparse"
+	"github.com/vedadiyan/sqlparser/v2/mysql/format"
+	querypb "github.com/vedadiyan/sqlparser/v2/query"
+	"github.com/vedadiyan/sqlparser/v2/vterrors"
+	vtrpcpb "github.com/vedadiyan/sqlparser/v2/vtrpc"
 )
 
 var (

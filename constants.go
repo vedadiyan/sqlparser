@@ -17,7 +17,7 @@ limitations under the License.
 
 package sqlparser
 
-import "github.com/vedadiyan/sqlparser/mysql/datetime"
+import "github.com/vedadiyan/sqlparser/v2/mysql/datetime"
 
 // String constants to be used in ast.
 const (

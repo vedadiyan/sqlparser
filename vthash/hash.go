@@ -17,8 +17,8 @@ limitations under the License.
 package vthash
 
 import (
-	"github.com/vedadiyan/sqlparser/vthash/highway"
-	"github.com/vedadiyan/sqlparser/vthash/metro"
+	"github.com/vedadiyan/sqlparser/v2/vthash/highway"
+	"github.com/vedadiyan/sqlparser/v2/vthash/metro"
 )
 
 type Hasher = metro.Metro128

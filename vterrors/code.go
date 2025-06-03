@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"strings"
 
-	vtrpcpb "github.com/vedadiyan/sqlparser/vtrpc"
+	vtrpcpb "github.com/vedadiyan/sqlparser/v2/vtrpc"
 )
 
 // Errors added to the list of variables below must be added to the Errors slice a little below in this same file.

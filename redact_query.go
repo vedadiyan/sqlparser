@@ -16,7 +16,7 @@ limitations under the License.
 
 package sqlparser
 
-import querypb "github.com/vedadiyan/sqlparser/query"
+import querypb "github.com/vedadiyan/sqlparser/v2/query"
 
 // RedactSQLQuery returns a sql string with the params stripped out for display
 func (p *Parser) RedactSQLQuery(sql string) (string, error) {

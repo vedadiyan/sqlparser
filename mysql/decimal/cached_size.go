@@ -17,7 +17,7 @@ limitations under the License.
 
 package decimal
 
-//import hack "github.com/vedadiyan/sqlparser/hack"
+//import hack "github.com/vedadiyan/sqlparser/v2/hack"
 
 // func (cached *Decimal) CachedSize(alloc bool) int64 {
 // 	if cached == nil {

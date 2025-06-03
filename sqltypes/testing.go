@@ -26,7 +26,7 @@ import (
 	"strings"
 	"time"
 
-	querypb "github.com/vedadiyan/sqlparser/query"
+	querypb "github.com/vedadiyan/sqlparser/v2/query"
 )
 
 // Functions in this file should only be used for testing.

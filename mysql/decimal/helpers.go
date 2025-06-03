@@ -16,7 +16,7 @@ limitations under the License.
 
 package decimal
 
-import "github.com/vedadiyan/sqlparser/vthash"
+import "github.com/vedadiyan/sqlparser/v2/vthash"
 
 func (d *Decimal) Hash(hasher *vthash.Hasher) {
 	_, _ = hasher.Write(d.formatFast(0, false, true))

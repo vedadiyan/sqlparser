@@ -21,8 +21,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/vedadiyan/sqlparser/vterrors"
-	vtrpcpb "github.com/vedadiyan/sqlparser/vtrpc"
+	"github.com/vedadiyan/sqlparser/v2/vterrors"
+	vtrpcpb "github.com/vedadiyan/sqlparser/v2/vtrpc"
 )
 
 func unknownTimeZone(tz string) error {

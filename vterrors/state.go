@@ -16,7 +16,7 @@ limitations under the License.
 
 package vterrors
 
-import vtrpcpb "github.com/vedadiyan/sqlparser/vtrpc"
+import vtrpcpb "github.com/vedadiyan/sqlparser/v2/vtrpc"
 
 // State is error state
 type State int

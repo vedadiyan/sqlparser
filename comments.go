@@ -22,11 +22,11 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/vedadiyan/sqlparser/sysvars"
-	"github.com/vedadiyan/sqlparser/vterrors"
-	vtrpcpb "github.com/vedadiyan/sqlparser/vtrpc"
+	"github.com/vedadiyan/sqlparser/v2/sysvars"
+	"github.com/vedadiyan/sqlparser/v2/vterrors"
+	vtrpcpb "github.com/vedadiyan/sqlparser/v2/vtrpc"
 
-	querypb "github.com/vedadiyan/sqlparser/query"
+	querypb "github.com/vedadiyan/sqlparser/v2/query"
 )
 
 const (

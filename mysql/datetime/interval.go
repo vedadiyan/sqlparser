@@ -22,8 +22,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/vedadiyan/sqlparser/hack"
-	"github.com/vedadiyan/sqlparser/mysql/decimal"
+	"github.com/vedadiyan/sqlparser/v2/hack"
+	"github.com/vedadiyan/sqlparser/v2/mysql/decimal"
 )
 
 // IntervalType represents the temporal elements contained in an Interval.

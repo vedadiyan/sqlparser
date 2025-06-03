@@ -12,7 +12,7 @@ import (
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	io "io"
 	math "math"
-	vttime "github.com/vedadiyan/sqlparser/vttime"
+	vttime "github.com/vedadiyan/sqlparser/v2/vttime"
 )
 
 const (

@@ -25,7 +25,7 @@ import (
 	"math/bits"
 	"strings"
 
-	"github.com/vedadiyan/sqlparser/mysql/fastparse"
+	"github.com/vedadiyan/sqlparser/v2/mysql/fastparse"
 )
 
 var errOverflow = errors.New("overflow")

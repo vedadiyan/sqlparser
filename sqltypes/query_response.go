@@ -17,7 +17,7 @@ limitations under the License.
 package sqltypes
 
 import (
-	"github.com/vedadiyan/sqlparser/vterrors"
+	"github.com/vedadiyan/sqlparser/v2/vterrors"
 )
 
 // QueryResponse represents a query response for ExecuteBatch.

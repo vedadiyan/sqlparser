@@ -95,7 +95,7 @@ import (
 
 	"github.com/spf13/pflag"
 
-	vtrpcpb "github.com/vedadiyan/sqlparser/vtrpc"
+	vtrpcpb "github.com/vedadiyan/sqlparser/v2/vtrpc"
 )
 
 // logErrStacks controls whether printing errors includes the

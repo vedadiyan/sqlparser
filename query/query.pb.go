@@ -26,8 +26,8 @@
 package query
 
 import (
-	topodata "github.com/vedadiyan/sqlparser/topodata"
-	vtrpc "github.com/vedadiyan/sqlparser/vtrpc"
+	topodata "github.com/vedadiyan/sqlparser/v2/topodata"
+	vtrpc "github.com/vedadiyan/sqlparser/v2/vtrpc"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"

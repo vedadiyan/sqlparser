@@ -20,8 +20,8 @@ import (
 	"encoding/binary"
 	"time"
 
-	"github.com/vedadiyan/sqlparser/mysql/decimal"
-	"github.com/vedadiyan/sqlparser/vthash"
+	"github.com/vedadiyan/sqlparser/v2/mysql/decimal"
+	"github.com/vedadiyan/sqlparser/v2/vthash"
 )
 
 const negMask = uint16(1 << 15)

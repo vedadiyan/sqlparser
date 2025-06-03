@@ -24,11 +24,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/vedadiyan/sqlparser/log"
-	"github.com/vedadiyan/sqlparser/mysql/config"
-	"github.com/vedadiyan/sqlparser/vterrors"
+	"github.com/vedadiyan/sqlparser/v2/log"
+	"github.com/vedadiyan/sqlparser/v2/mysql/config"
+	"github.com/vedadiyan/sqlparser/v2/vterrors"
 
-	vtrpcpb "github.com/vedadiyan/sqlparser/vtrpc"
+	vtrpcpb "github.com/vedadiyan/sqlparser/v2/vtrpc"
 )
 
 // parserPool is a pool for parser objects.

@@ -17,9 +17,9 @@ limitations under the License.
 package sqlparser
 
 import (
-	"github.com/vedadiyan/sqlparser/mysql/datetime"
-	"github.com/vedadiyan/sqlparser/sqltypes"
-	"github.com/vedadiyan/sqlparser/vterrors"
+	"github.com/vedadiyan/sqlparser/v2/mysql/datetime"
+	"github.com/vedadiyan/sqlparser/v2/sqltypes"
+	"github.com/vedadiyan/sqlparser/v2/vterrors"
 )
 
 /*

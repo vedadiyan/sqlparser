@@ -22,7 +22,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/vedadiyan/sqlparser/slice"
+	"github.com/vedadiyan/sqlparser/v2/slice"
 )
 
 // NodeFormatter defines the signature of a custom node formatter

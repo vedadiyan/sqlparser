@@ -17,7 +17,7 @@ limitations under the License.
 package sqlparser
 
 import (
-	"github.com/vedadiyan/sqlparser/sqltypes"
+	"github.com/vedadiyan/sqlparser/v2/sqltypes"
 )
 
 // Format formats the node.

@@ -16,7 +16,7 @@ limitations under the License.
 
 package sqlparser
 
-import "github.com/vedadiyan/sqlparser/sqlparser/pathbuilder"
+import "github.com/vedadiyan/sqlparser/v2/pathbuilder"
 
 // Rewrite traverses a syntax tree recursively, starting with root,
 // and calling pre and post for each node as described below.

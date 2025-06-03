@@ -24,13 +24,13 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/vedadiyan/sqlparser/log"
-	"github.com/vedadiyan/sqlparser/mysql/datetime"
-	"github.com/vedadiyan/sqlparser/mysql/decimal"
-	querypb "github.com/vedadiyan/sqlparser/query"
-	"github.com/vedadiyan/sqlparser/sqltypes"
-	"github.com/vedadiyan/sqlparser/vterrors"
-	vtrpcpb "github.com/vedadiyan/sqlparser/vtrpc"
+	"github.com/vedadiyan/sqlparser/v2/log"
+	"github.com/vedadiyan/sqlparser/v2/mysql/datetime"
+	"github.com/vedadiyan/sqlparser/v2/mysql/decimal"
+	querypb "github.com/vedadiyan/sqlparser/v2/query"
+	"github.com/vedadiyan/sqlparser/v2/sqltypes"
+	"github.com/vedadiyan/sqlparser/v2/vterrors"
+	vtrpcpb "github.com/vedadiyan/sqlparser/v2/vtrpc"
 )
 
 // Walk calls postVisit on every node.

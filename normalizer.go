@@ -22,12 +22,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/vedadiyan/sqlparser/mysql/datetime"
-	querypb "github.com/vedadiyan/sqlparser/query"
-	"github.com/vedadiyan/sqlparser/sqltypes"
-	"github.com/vedadiyan/sqlparser/sysvars"
-	"github.com/vedadiyan/sqlparser/vterrors"
-	vtrpcpb "github.com/vedadiyan/sqlparser/vtrpc"
+	"github.com/vedadiyan/sqlparser/v2/mysql/datetime"
+	querypb "github.com/vedadiyan/sqlparser/v2/query"
+	"github.com/vedadiyan/sqlparser/v2/sqltypes"
+	"github.com/vedadiyan/sqlparser/v2/sysvars"
+	"github.com/vedadiyan/sqlparser/v2/vterrors"
+	vtrpcpb "github.com/vedadiyan/sqlparser/v2/vtrpc"
 )
 
 type (

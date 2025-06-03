@@ -21,7 +21,7 @@ import (
 	"sort"
 	"strings"
 
-	querypb "github.com/vedadiyan/sqlparser/query"
+	querypb "github.com/vedadiyan/sqlparser/v2/query"
 )
 
 // QueryMatchesTemplates sees if the given query has the same fingerprint as one of the given templates

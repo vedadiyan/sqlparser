@@ -20,7 +20,7 @@ package sqlparser
 import (
 	"fmt"
 
-	"github.com/vedadiyan/sqlparser/sqltypes"
+	"github.com/vedadiyan/sqlparser/v2/sqltypes"
 )
 
 // FormatFast formats the node.

@@ -17,7 +17,7 @@ limitations under the License.
 package vterrors
 
 import (
-	vtrpcpb "github.com/vedadiyan/sqlparser/vtrpc"
+	vtrpcpb "github.com/vedadiyan/sqlparser/v2/vtrpc"
 )
 
 // This file contains the necessary methods to send and receive errors

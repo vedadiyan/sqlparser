@@ -17,7 +17,7 @@ limitations under the License.
 %{
 package sqlparser
 
-import "github.com/vedadiyan/sqlparser/ptr"
+import "github.com/vedadiyan/sqlparser/v2/ptr"
 
 func setParseTrees(yylex yyLexer, stmts []Statement) {
   if len(stmts) > 1 && stmts[len(stmts)-1] == nil {

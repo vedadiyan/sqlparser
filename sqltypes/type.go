@@ -19,7 +19,7 @@ package sqltypes
 import (
 	"fmt"
 
-	querypb "github.com/vedadiyan/sqlparser/query"
+	querypb "github.com/vedadiyan/sqlparser/v2/query"
 )
 
 type Type = querypb.Type

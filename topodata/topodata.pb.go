@@ -28,7 +28,7 @@
 package topodata
 
 import (
-	vttime "github.com/vedadiyan/sqlparser/vttime"
+	vttime "github.com/vedadiyan/sqlparser/v2/vttime"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"

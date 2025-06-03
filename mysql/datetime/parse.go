@@ -20,8 +20,8 @@ import (
 	"math"
 	"strings"
 
-	"github.com/vedadiyan/sqlparser/mysql/decimal"
-	"github.com/vedadiyan/sqlparser/mysql/fastparse"
+	"github.com/vedadiyan/sqlparser/v2/mysql/decimal"
+	"github.com/vedadiyan/sqlparser/v2/mysql/fastparse"
 )
 
 func parsetimeHours(tp *timeparts, in string) (string, TimeState) {
