@@ -1,4 +1,4 @@
-module github.com/vedadiyan/sqlparser
+module github.com/vedadiyan/sqlparser/v2
 
 go 1.23.0
 

@@ -14,7 +14,7 @@ Key modifications include:
 ## Installation
 
 ```bash
-go get github.com/vedadiyan/sqlparser
+go get github.com/vedadiyan/sqlparser/v2
 ```
 
 ## Usage
@@ -24,7 +24,7 @@ package main
 
 import (
     "fmt"
-    "github.com/vedadiyan/sqlparser/pkg/sqlparser"
+    "github.com/vedadiyan/sqlparser/v2/sqlparser"
 )
 
 func main() {
