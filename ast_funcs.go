@@ -2200,6 +2200,33 @@ func (joinType JoinType) IsInner() bool {
 	}
 }
 
+func (joinType JoinType) IsLeftJoin() bool {
+	switch joinType {
+	case LeftHashJoinType, LeftJoinType, NaturalLeftJoinType, ParallelLeftJoinType, ParallelLeftHashJoinType:
+		return true
+	default:
+		return false
+	}
+}
+
+func (joinType JoinType) IsHashJoin() bool {
+	switch joinType {
+	case HashJoinType, LeftHashJoinType, RightHashJoinType, ParallelHashJoinType, ParallelLeftHashJoinType, ParallelRightHashJoinType:
+		return true
+	default:
+		return false
+	}
+}
+
+func (joinType JoinType) IsParallel() bool {
+	switch joinType {
+	case ParallelHashJoinType, ParallelLeftHashJoinType, ParallelLeftJoinType, ParallelRightHashJoinType, ParallelRightJoinType, ParallelNormalJoinType:
+		return true
+	default:
+		return false
+	}
+}
+
 // ToString returns the type as a string
 func (ty LockType) ToString() string {
 	switch ty {
