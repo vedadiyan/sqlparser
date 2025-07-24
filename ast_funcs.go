@@ -2202,7 +2202,7 @@ func (joinType JoinType) IsInner() bool {
 
 func (joinType JoinType) IsLeftJoin() bool {
 	switch joinType {
-	case NormalJoinType, ParallelNormalJoinType, LeftHashJoinType, LeftJoinType, NaturalLeftJoinType, ParallelLeftJoinType, ParallelLeftHashJoinType, HashJoinType:
+	case NormalJoinType, ParallelNormalJoinType, LeftHashJoinType, LeftJoinType, NaturalLeftJoinType, ParallelLeftJoinType, ParallelLeftHashJoinType, HashJoinType, ParallelHashJoinType, StraightJoinType:
 		return true
 	default:
 		return false
