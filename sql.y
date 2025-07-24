@@ -5600,6 +5600,11 @@ straight_join:
   {
     $$ = StraightJoinType
   }
+| PARALLEL STRAIGHT_JOIN
+  {
+    $$ = ParallelStraightJoinType
+  }
+
 
 outer_join:
   LEFT JOIN

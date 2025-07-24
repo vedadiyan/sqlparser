@@ -692,6 +692,7 @@ const (
 const (
 	NormalJoinType JoinType = iota
 	StraightJoinType
+	ParallelStraightJoinType
 	LeftJoinType
 	RightJoinType
 	NaturalJoinType
