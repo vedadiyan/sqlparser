@@ -2193,7 +2193,7 @@ func (joinType JoinType) IsCommutative() bool {
 // IsInner returns whether the join type is an inner join or not.
 func (joinType JoinType) IsInner() bool {
 	switch joinType {
-	case StraightJoinType, NaturalJoinType, NormalJoinType:
+	case StraightJoinType, NaturalJoinType, NormalJoinType, HashJoinType, ParallelHashJoinType, ParallelNormalJoinType, ParallelStraightJoinType:
 		return true
 	default:
 		return false
@@ -2202,7 +2202,7 @@ func (joinType JoinType) IsInner() bool {
 
 func (joinType JoinType) IsLeftJoin() bool {
 	switch joinType {
-	case LeftHashJoinType, LeftJoinType, NaturalLeftJoinType, ParallelLeftJoinType, ParallelLeftHashJoinType, HashJoinType:
+	case NormalJoinType, ParallelNormalJoinType, LeftHashJoinType, LeftJoinType, NaturalLeftJoinType, ParallelLeftJoinType, ParallelLeftHashJoinType, HashJoinType, ParallelHashJoinType, StraightJoinType, ParallelStraightJoinType:
 		return true
 	default:
 		return false
@@ -2218,9 +2218,18 @@ func (joinType JoinType) IsHashJoin() bool {
 	}
 }
 
+func (joinType JoinType) IsStraightJoin() bool {
+	switch joinType {
+	case StraightJoinType, ParallelStraightJoinType:
+		return true
+	default:
+		return false
+	}
+}
+
 func (joinType JoinType) IsParallel() bool {
 	switch joinType {
-	case ParallelHashJoinType, ParallelLeftHashJoinType, ParallelLeftJoinType, ParallelRightHashJoinType, ParallelRightJoinType, ParallelNormalJoinType:
+	case ParallelHashJoinType, ParallelLeftHashJoinType, ParallelLeftJoinType, ParallelRightHashJoinType, ParallelRightJoinType, ParallelNormalJoinType, ParallelStraightJoinType:
 		return true
 	default:
 		return false

@@ -281,7 +281,7 @@ func markBindVariable(yylex yyLexer, bvar string) {
 %token <str> VALUES LAST_INSERT_ID
 %token <str> NEXT VALUE SHARE MODE
 %token <str> SQL_NO_CACHE SQL_CACHE SQL_CALC_FOUND_ROWS SQL_SMALL_RESULT SQL_BIG_RESULT HIGH_PRIORITY
-%left <str> JOIN STRAIGHT_JOIN HASH_JOIN LEFT RIGHT INNER OUTER CROSS  NATURAL USE FORCE
+%left <str> JOIN STRAIGHT_JOIN HASH_JOIN LEFT RIGHT INNER OUTER CROSS NATURAL USE FORCE
 %left <str> ON USING INPLACE COPY INSTANT ALGORITHM NONE SHARED EXCLUSIVE
 %left <str> SUBQUERY_AS_EXPR
 %left <str> '(' ',' ')'
@@ -542,6 +542,7 @@ func markBindVariable(yylex yyLexer, bvar string) {
 %type <joinCondition> join_condition join_condition_opt on_expression_opt
 %type <tableNames> table_name_list delete_table_list view_name_list
 %type <joinType> inner_join outer_join straight_join natural_join
+%type <str> into_clause_opt
 %type <tableName> table_name into_table_name delete_table_name
 %type <aliasedTableName> aliased_table_name
 %type <indexHint> index_hint
@@ -5489,22 +5490,28 @@ partition_list:
 // first construct, which automatically makes the second construct a
 // syntax error. This is the same behavior as MySQL.
 join_table:
-  table_reference inner_join table_factor join_condition_opt
+  table_reference inner_join table_factor join_condition_opt into_clause_opt
   {
-    $$ = &JoinTableExpr{LeftExpr: $1, Join: $2, RightExpr: $3, Condition: $4}
+    $$ = &JoinTableExpr{LeftExpr: $1, Join: $2, RightExpr: $3, Condition: $4, Into: $5}
   }
-| table_reference straight_join table_factor on_expression_opt
+| table_reference straight_join table_factor on_expression_opt into_clause_opt
   {
-    $$ = &JoinTableExpr{LeftExpr: $1, Join: $2, RightExpr: $3, Condition: $4}
+    $$ = &JoinTableExpr{LeftExpr: $1, Join: $2, RightExpr: $3, Condition: $4, Into: $5}
   }
-| table_reference outer_join table_reference join_condition
+| table_reference outer_join table_reference join_condition into_clause_opt
   {
-    $$ = &JoinTableExpr{LeftExpr: $1, Join: $2, RightExpr: $3, Condition: $4}
+    $$ = &JoinTableExpr{LeftExpr: $1, Join: $2, RightExpr: $3, Condition: $4, Into: $5}
   }
-| table_reference natural_join table_factor
+| table_reference natural_join table_factor into_clause_opt
   {
-    $$ = &JoinTableExpr{LeftExpr: $1, Join: $2, RightExpr: $3}
+    $$ = &JoinTableExpr{LeftExpr: $1, Join: $2, RightExpr: $3, Into: $4}
   }
+
+into_clause_opt:
+  { $$ = "" }
+| INTO table_alias
+  { $$ = $2.String() }
+
 
 join_condition:
   ON expression
@@ -5593,6 +5600,11 @@ straight_join:
   {
     $$ = StraightJoinType
   }
+| PARALLEL STRAIGHT_JOIN
+  {
+    $$ = ParallelStraightJoinType
+  }
+
 
 outer_join:
   LEFT JOIN

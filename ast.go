@@ -2414,6 +2414,7 @@ type (
 		Join      JoinType
 		RightExpr TableExpr
 		Condition *JoinCondition
+		Into      string
 	}
 
 	// JoinType represents the type of Join for JoinTableExpr
